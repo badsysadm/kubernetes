@@ -30,6 +30,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	examplev1 "k8s.io/apiserver/pkg/apis/example/v1"
+	"k8s.io/apiserver/pkg/endpoints/handlers/negotiation"
 	"k8s.io/apiserver/pkg/endpoints/request"
 	"k8s.io/apiserver/pkg/registry/rest"
 )
@@ -63,7 +64,7 @@ func (m *mockCacheableObject) SetGroupVersionKind(gvk schema.GroupVersionKind) {
 
 // CacheEncode implements runtime.CacheableObject interface.
 func (m *mockCacheableObject) CacheEncode(id runtime.Identifier, encode func(runtime.Object, io.Writer) error, w io.Writer) error {
-	return encode(m.obj.DeepCopyObject(), w)
+	return fmt.Errorf("unimplemented")
 }
 
 // GetObject implements runtime.CacheableObject interface.
@@ -76,19 +77,6 @@ type mockNamer struct{}
 func (*mockNamer) Namespace(_ *http.Request) (string, error)           { return "", nil }
 func (*mockNamer) Name(_ *http.Request) (string, string, error)        { return "", "", nil }
 func (*mockNamer) ObjectName(_ runtime.Object) (string, string, error) { return "", "", nil }
-
-type mockEncoder struct {
-	obj runtime.Object
-}
-
-func (e *mockEncoder) Encode(obj runtime.Object, _ io.Writer) error {
-	e.obj = obj
-	return nil
-}
-
-func (e *mockEncoder) Identifier() runtime.Identifier {
-	return runtime.Identifier("")
-}
 
 func TestCacheableObject(t *testing.T) {
 	pomGVK := metav1.SchemeGroupVersion.WithKind("PartialObjectMetadata")
@@ -119,10 +107,10 @@ func TestCacheableObject(t *testing.T) {
 	tableConvertor := rest.NewDefaultTableConvertor(examplev1.Resource("Pod"))
 
 	testCases := []struct {
-		desc   string
-		object runtime.Object
-		opts   *metav1beta1.TableOptions
-		target *schema.GroupVersionKind
+		desc      string
+		object    runtime.Object
+		opts      *metav1beta1.TableOptions
+		mediaType negotiation.MediaTypeOptions
 
 		expectedUnwrap bool
 		expectedObj    runtime.Object
@@ -137,14 +125,14 @@ func TestCacheableObject(t *testing.T) {
 		{
 			desc:        "cacheableObject nil convert",
 			object:      &mockCacheableObject{obj: pod},
-			target:      nil,
-			expectedObj: pod,
+			mediaType:   negotiation.MediaTypeOptions{},
+			expectedObj: &mockCacheableObject{obj: pod},
 			expectedErr: nil,
 		},
 		{
 			desc:        "cacheableObject as PartialObjectMeta",
 			object:      &mockCacheableObject{obj: pod},
-			target:      &pomGVK,
+			mediaType:   negotiation.MediaTypeOptions{Convert: &pomGVK},
 			expectedObj: podMeta,
 			expectedErr: nil,
 		},
@@ -152,7 +140,7 @@ func TestCacheableObject(t *testing.T) {
 			desc:        "cacheableObject as Table",
 			object:      &mockCacheableObject{obj: pod},
 			opts:        &metav1beta1.TableOptions{NoHeaders: true, IncludeObject: metav1.IncludeNone},
-			target:      &tableGVK,
+			mediaType:   negotiation.MediaTypeOptions{Convert: &tableGVK},
 			expectedObj: podTable,
 			expectedErr: nil,
 		},
@@ -160,22 +148,20 @@ func TestCacheableObject(t *testing.T) {
 
 	for _, test := range testCases {
 		t.Run(test.desc, func(t *testing.T) {
-			internalEncoder := &mockEncoder{}
-			watchEncoder := newWatchEmbeddedEncoder(
+			result, err := transformObject(
 				request.WithRequestInfo(context.TODO(), &request.RequestInfo{}),
-				internalEncoder, test.target, test.opts,
+				test.object, test.opts, test.mediaType,
 				&RequestScope{
 					Namer:          &mockNamer{},
 					TableConvertor: tableConvertor,
 				},
-			)
+				nil)
 
-			err := watchEncoder.Encode(test.object, nil)
 			if err != test.expectedErr {
 				t.Errorf("unexpected error: %v, expected: %v", err, test.expectedErr)
 			}
-			if a, e := internalEncoder.obj, test.expectedObj; !reflect.DeepEqual(a, e) {
-				t.Errorf("unexpected result: %#v, expected: %#v", a, e)
+			if a, e := result, test.expectedObj; !reflect.DeepEqual(a, e) {
+				t.Errorf("unexpected result: %v, expected: %v", a, e)
 			}
 		})
 	}
@@ -210,15 +196,5 @@ func TestAsPartialObjectMetadataList(t *testing.T) {
 				t.Errorf("unexpected list metadata: %v, expected: %v", listMeta, pods.ListMeta)
 			}
 		})
-	}
-}
-
-func TestWatchEncoderIdentifier(t *testing.T) {
-	eventFields := reflect.VisibleFields(reflect.TypeOf(metav1.WatchEvent{}))
-	if len(eventFields) != 2 {
-		t.Error("New field was added to metav1.WatchEvent.")
-		t.Error("  Ensure that the following places are updated accordingly:")
-		t.Error("  - watchEncoder::doEncode method when creating outEvent")
-		t.Error("  - watchEncoder::typeIdentifier to capture all relevant fields in identifier")
 	}
 }

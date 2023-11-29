@@ -17,6 +17,8 @@ limitations under the License.
 package kubeadm
 
 import (
+	"crypto/x509"
+
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -42,9 +44,6 @@ type InitConfiguration struct {
 	// BootstrapTokens is respected at `kubeadm init` time and describes a set of Bootstrap Tokens to create.
 	BootstrapTokens []bootstraptokenv1.BootstrapToken
 
-	// DryRun tells if the dry run mode is enabled, don't apply any change if it is and just output what would be done.
-	DryRun bool
-
 	// NodeRegistration holds fields that relate to registering the new control-plane node to the cluster
 	NodeRegistration NodeRegistrationOptions
 
@@ -58,7 +57,6 @@ type InitConfiguration struct {
 
 	// CertificateKey sets the key with which certificates and keys are encrypted prior to being uploaded in
 	// a secret in the cluster during the uploadcerts init phase.
-	// The certificate key is a hex encoded string that is an AES key of size 32 bytes.
 	CertificateKey string
 
 	// SkipPhases is a list of phases to skip during command execution.
@@ -120,9 +118,6 @@ type ClusterConfiguration struct {
 	// DNS defines the options for the DNS add-on installed in the cluster.
 	DNS DNS
 
-	// Proxy defines the options for the proxy add-on installed in the cluster.
-	Proxy Proxy
-
 	// CertificatesDir specifies where to store or look for all required certificates.
 	CertificatesDir string
 
@@ -142,27 +137,19 @@ type ClusterConfiguration struct {
 
 	// The cluster name
 	ClusterName string
-
-	// EncryptionAlgorithm holds the type of asymmetric encryption algorithm used for keys and certificates.
-	// Can be "RSA" (default algorithm, key size is 2048) or "ECDSA" (uses the P-256 elliptic curve).
-	EncryptionAlgorithm EncryptionAlgorithmType
 }
 
 // ControlPlaneComponent holds settings common to control plane component of the cluster
 type ControlPlaneComponent struct {
 	// ExtraArgs is an extra set of flags to pass to the control plane component.
-	// An argument name in this list is the flag name as it appears on the
-	// command line except without leading dash(es). Extra arguments will override existing
-	// default arguments. Duplicate extra arguments are allowed.
-	ExtraArgs []Arg
+	// A key in this map is the flag name as it appears on the
+	// command line except without leading dash(es).
+	// TODO: This is temporary and ideally we would like to switch all components to
+	// use ComponentConfig + ConfigMaps.
+	ExtraArgs map[string]string
 
 	// ExtraVolumes is an extra set of host volumes, mounted to the control plane component.
 	ExtraVolumes []HostPathMount
-
-	// ExtraEnvs is an extra set of environment variables to pass to the control plane component.
-	// Environment variables passed using ExtraEnvs will override any existing environment variables, or *_proxy environment variables that kubeadm adds by default.
-	// +optional
-	ExtraEnvs []EnvVar
 }
 
 // APIServer holds settings necessary for API server deployments in the cluster
@@ -176,19 +163,24 @@ type APIServer struct {
 	TimeoutForControlPlane *metav1.Duration
 }
 
+// DNSAddOnType defines string identifying DNS add-on types
+// TODO: Remove with v1beta2 https://github.com/kubernetes/kubeadm/issues/2459
+type DNSAddOnType string
+
+const (
+	// CoreDNS add-on type
+	// TODO: Remove with v1beta2 https://github.com/kubernetes/kubeadm/issues/2459
+	CoreDNS DNSAddOnType = "CoreDNS"
+)
+
 // DNS defines the DNS addon that should be used in the cluster
 type DNS struct {
-	// ImageMeta allows to customize the image used for the DNS addon
+	// Type defines the DNS add-on to be used
+	// TODO: Used only in validation over the internal type. Remove with v1beta2 https://github.com/kubernetes/kubeadm/issues/2459
+	Type DNSAddOnType
+
+	// ImageMeta allows to customize the image used for the DNS component
 	ImageMeta `json:",inline"`
-
-	// Disabled specifies whether to disable this addon in the cluster
-	Disabled bool
-}
-
-// Proxy defines the proxy addon that should be used in the cluster
-type Proxy struct {
-	// Disabled specifies whether to disable this addon in the cluster
-	Disabled bool
 }
 
 // ImageMeta allows to customize the image used for components that are not
@@ -234,12 +226,11 @@ type NodeRegistrationOptions struct {
 	// KubeletExtraArgs passes through extra arguments to the kubelet. The arguments here are passed to the kubelet command line via the environment file
 	// kubeadm writes at runtime for the kubelet to source. This overrides the generic base-level configuration in the kubelet-config ConfigMap
 	// Flags have higher priority when parsing. These values are local and specific to the node kubeadm is executing on.
-	// An argument name in this list is the flag name as it appears on the command line except without leading dash(es).
-	// Extra arguments will override existing default arguments. Duplicate extra arguments are allowed.
-	KubeletExtraArgs []Arg
+	// A key in this map is the flag name as it appears on the
+	// command line except without leading dash(es).
+	KubeletExtraArgs map[string]string
 
-	// IgnorePreflightErrors provides a slice of pre-flight errors to be ignored when the current node is registered, e.g. 'IsPrivilegedUser,Swap'.
-	// Value 'all' ignores errors from all checks.
+	// IgnorePreflightErrors provides a slice of pre-flight errors to be ignored when the current node is registered.
 	IgnorePreflightErrors []string
 
 	// ImagePullPolicy specifies the policy for image pulling during kubeadm "init" and "join" operations.
@@ -281,15 +272,9 @@ type LocalEtcd struct {
 
 	// ExtraArgs are extra arguments provided to the etcd binary
 	// when run inside a static pod.
-	// An argument name in this list is the flag name as it appears on the
-	// command line except without leading dash(es). Extra arguments will override existing
-	// default arguments. Duplicate extra arguments are allowed.
-	ExtraArgs []Arg
-
-	// ExtraEnvs is an extra set of environment variables to pass to the control plane component.
-	// Environment variables passed using ExtraEnvs will override any existing environment variables, or *_proxy environment variables that kubeadm adds by default.
-	// +optional
-	ExtraEnvs []EnvVar
+	// A key in this map is the flag name as it appears on the
+	// command line except without leading dash(es).
+	ExtraArgs map[string]string
 
 	// ServerCertSANs sets extra Subject Alternative Names for the etcd server signing cert.
 	ServerCertSANs []string
@@ -316,9 +301,6 @@ type ExternalEtcd struct {
 // JoinConfiguration contains elements describing a particular node.
 type JoinConfiguration struct {
 	metav1.TypeMeta
-
-	// DryRun tells if the dry run mode is enabled, don't apply any change if it is and just output what would be done.
-	DryRun bool
 
 	// NodeRegistration holds fields that relate to registering the new control-plane node to the cluster
 	NodeRegistration NodeRegistrationOptions
@@ -352,7 +334,6 @@ type JoinControlPlane struct {
 
 	// CertificateKey is the key that is used for decryption of certificates after they are downloaded from the secret
 	// upon joining a new control plane node. The corresponding encryption key is in the InitConfiguration.
-	// The certificate key is a hex encoded string that is an AES key of size 32 bytes.
 	CertificateKey string
 }
 
@@ -417,18 +398,13 @@ func (cfg *ClusterConfiguration) GetControlPlaneImageRepository() string {
 	return cfg.ImageRepository
 }
 
-// EncryptionAlgorithmType returns the type of encryption keys used in the cluster.
-func (cfg *ClusterConfiguration) EncryptionAlgorithmType() EncryptionAlgorithmType {
-	// If the feature gate is set to true, or false respect it.
-	// If the feature gate is not set, use the EncryptionAlgorithm field (v1beta4).
-	// TODO: remove this function when the feature gate is removed.
-	if enabled, ok := cfg.FeatureGates[features.PublicKeysECDSA]; ok {
-		if enabled {
-			return EncryptionAlgorithmECDSA
-		}
-		return EncryptionAlgorithmRSA
+// PublicKeyAlgorithm returns the type of encryption keys used in the cluster.
+func (cfg *ClusterConfiguration) PublicKeyAlgorithm() x509.PublicKeyAlgorithm {
+	if features.Enabled(cfg.FeatureGates, features.PublicKeysECDSA) {
+		return x509.ECDSA
 	}
-	return cfg.EncryptionAlgorithm
+
+	return x509.RSA
 }
 
 // HostPathMount contains elements describing volumes that are mounted from the
@@ -493,57 +469,5 @@ type ComponentConfig interface {
 	Get() interface{}
 }
 
-// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
-
-// ResetConfiguration contains a list of fields that are specifically "kubeadm reset"-only runtime information.
-type ResetConfiguration struct {
-	metav1.TypeMeta
-
-	// CertificatesDir specifies the directory where the certificates are stored. If specified, it will be cleaned during the reset process.
-	CertificatesDir string
-
-	// CleanupTmpDir specifies whether the "/etc/kubernetes/tmp" directory should be cleaned during the reset process.
-	CleanupTmpDir bool
-
-	// CRISocket is used to retrieve container runtime info and used for the removal of the containers.
-	// If CRISocket is not specified by flag or config file, kubeadm will try to detect one valid CRISocket instead.
-	CRISocket string
-
-	// DryRun tells if the dry run mode is enabled, don't apply any change if it is and just output what would be done.
-	DryRun bool
-
-	// Force flag instructs kubeadm to reset the node without prompting for confirmation.
-	Force bool
-
-	// IgnorePreflightErrors provides a slice of pre-flight errors to be ignored during the reset process, e.g. 'IsPrivilegedUser,Swap'.
-	// Value 'all' ignores errors from all checks.
-	IgnorePreflightErrors []string
-
-	// SkipPhases is a list of phases to skip during command execution.
-	// The list of phases can be obtained with the "kubeadm reset phase --help" command.
-	SkipPhases []string
-}
-
 // ComponentConfigMap is a map between a group name (as in GVK group) and a ComponentConfig
 type ComponentConfigMap map[string]ComponentConfig
-
-// Arg represents an argument with a name and a value.
-type Arg struct {
-	Name  string
-	Value string
-}
-
-// EnvVar represents an environment variable present in a Container.
-type EnvVar struct {
-	v1.EnvVar
-}
-
-// EncryptionAlgorithmType can define an asymmetric encryption algorithm type.
-type EncryptionAlgorithmType string
-
-const (
-	// EncryptionAlgorithmECDSA defines the ECDSA encryption algorithm type.
-	EncryptionAlgorithmECDSA EncryptionAlgorithmType = "ECDSA"
-	// EncryptionAlgorithmRSA defines the RSA encryption algorithm type.
-	EncryptionAlgorithmRSA EncryptionAlgorithmType = "RSA"
-)

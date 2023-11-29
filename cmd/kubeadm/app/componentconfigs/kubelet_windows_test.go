@@ -22,7 +22,7 @@ import (
 	"testing"
 
 	kubeletconfig "k8s.io/kubelet/config/v1beta1"
-	"k8s.io/utils/ptr"
+	utilpointer "k8s.io/utils/pointer"
 )
 
 func TestMutatePaths(t *testing.T) {
@@ -46,7 +46,7 @@ func TestMutatePaths(t *testing.T) {
 				},
 			},
 			expected: &kubeletconfig.KubeletConfiguration{
-				ResolverConfig: ptr.To(""),
+				ResolverConfig: utilpointer.String(""),
 				StaticPodPath:  filepath.Join(drive, "/foo/staticpods"),
 				Authentication: kubeletconfig.KubeletAuthentication{
 					X509: kubeletconfig.KubeletX509Authentication{
@@ -67,7 +67,7 @@ func TestMutatePaths(t *testing.T) {
 				},
 			},
 			expected: &kubeletconfig.KubeletConfiguration{
-				ResolverConfig: ptr.To(""),
+				ResolverConfig: utilpointer.String(""),
 				StaticPodPath:  "./foo/staticpods",
 				Authentication: kubeletconfig.KubeletAuthentication{
 					X509: kubeletconfig.KubeletX509Authentication{

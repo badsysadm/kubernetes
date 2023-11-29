@@ -17,7 +17,6 @@ limitations under the License.
 package windows
 
 import (
-	"context"
 	"fmt"
 
 	v1 "k8s.io/api/core/v1"
@@ -30,7 +29,6 @@ import (
 	admissionapi "k8s.io/pod-security-admission/api"
 
 	"github.com/onsi/ginkgo/v2"
-	"github.com/onsi/gomega"
 )
 
 const (
@@ -44,9 +42,9 @@ var (
 	image = imageutils.GetE2EImage(imageutils.Pause)
 )
 
-var _ = sigDescribe("[Feature:Windows] Windows volume mounts", skipUnlessWindows(func() {
+var _ = SIGDescribe("[Feature:Windows] Windows volume mounts ", func() {
 	f := framework.NewDefaultFramework("windows-volumes")
-	f.NamespacePodSecurityLevel = admissionapi.LevelPrivileged
+	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	var (
 		emptyDirSource = v1.VolumeSource{
 			EmptyDir: &v1.EmptyDirVolumeSource{
@@ -67,28 +65,29 @@ var _ = sigDescribe("[Feature:Windows] Windows volume mounts", skipUnlessWindows
 
 	ginkgo.Context("check volume mount permissions", func() {
 
-		ginkgo.It("container should have readOnly permissions on emptyDir", func(ctx context.Context) {
+		ginkgo.It("container should have readOnly permissions on emptyDir", func() {
 
 			ginkgo.By("creating a container with readOnly permissions on emptyDir volume")
-			doReadOnlyTest(ctx, f, emptyDirSource, emptyDirVolumePath)
+			doReadOnlyTest(f, emptyDirSource, emptyDirVolumePath)
 
 			ginkgo.By("creating two containers, one with readOnly permissions the other with read-write permissions on emptyDir volume")
-			doReadWriteReadOnlyTest(ctx, f, emptyDirSource, emptyDirVolumePath)
+			doReadWriteReadOnlyTest(f, emptyDirSource, emptyDirVolumePath)
 		})
 
-		ginkgo.It("container should have readOnly permissions on hostMapPath", func(ctx context.Context) {
+		ginkgo.It("container should have readOnly permissions on hostMapPath", func() {
 
 			ginkgo.By("creating a container with readOnly permissions on hostMap volume")
-			doReadOnlyTest(ctx, f, hostMapSource, hostMapPath)
+			doReadOnlyTest(f, hostMapSource, hostMapPath)
 
 			ginkgo.By("creating two containers, one with readOnly permissions the other with read-write permissions on hostMap volume")
-			doReadWriteReadOnlyTest(ctx, f, hostMapSource, hostMapPath)
+			doReadWriteReadOnlyTest(f, hostMapSource, hostMapPath)
 		})
 
 	})
-}))
 
-func doReadOnlyTest(ctx context.Context, f *framework.Framework, source v1.VolumeSource, volumePath string) {
+})
+
+func doReadOnlyTest(f *framework.Framework, source v1.VolumeSource, volumePath string) {
 	var (
 		filePath = volumePath + "\\test-file.txt"
 		podName  = "pod-" + string(uuid.NewUUID())
@@ -98,18 +97,18 @@ func doReadOnlyTest(ctx context.Context, f *framework.Framework, source v1.Volum
 		"kubernetes.io/os": "windows",
 	}
 
-	pod = e2epod.NewPodClient(f).CreateSync(ctx, pod)
+	pod = e2epod.NewPodClient(f).CreateSync(pod)
 	ginkgo.By("verifying that pod has the correct nodeSelector")
-	gomega.Expect(pod.Spec.NodeSelector).To(gomega.HaveKeyWithValue("kubernetes.io/os", "windows"), "pod.spec.nodeSelector")
+	framework.ExpectEqual(pod.Spec.NodeSelector["kubernetes.io/os"], "windows")
 
 	cmd := []string{"cmd", "/c", "echo windows-volume-test", ">", filePath}
 
 	ginkgo.By("verifying that pod will get an error when writing to a volume that is readonly")
 	_, stderr, _ := e2epod.ExecCommandInContainerWithFullOutput(f, podName, containerName, cmd...)
-	gomega.Expect(stderr).To(gomega.Equal("Access is denied."))
+	framework.ExpectEqual(stderr, "Access is denied.")
 }
 
-func doReadWriteReadOnlyTest(ctx context.Context, f *framework.Framework, source v1.VolumeSource, volumePath string) {
+func doReadWriteReadOnlyTest(f *framework.Framework, source v1.VolumeSource, volumePath string) {
 	var (
 		filePath        = volumePath + "\\test-file" + string(uuid.NewUUID())
 		podName         = "pod-" + string(uuid.NewUUID())
@@ -132,10 +131,10 @@ func doReadWriteReadOnlyTest(ctx context.Context, f *framework.Framework, source
 	}
 
 	pod.Spec.Containers = append(pod.Spec.Containers, rwcontainer)
-	pod = e2epod.NewPodClient(f).CreateSync(ctx, pod)
+	pod = e2epod.NewPodClient(f).CreateSync(pod)
 
 	ginkgo.By("verifying that pod has the correct nodeSelector")
-	gomega.Expect(pod.Spec.NodeSelector).To(gomega.HaveKeyWithValue("kubernetes.io/os", "windows"), "pod.spec.nodeSelector")
+	framework.ExpectEqual(pod.Spec.NodeSelector["kubernetes.io/os"], "windows")
 
 	ginkgo.By("verifying that pod can write to a volume with read/write access")
 	writecmd := []string{"cmd", "/c", "echo windows-volume-test", ">", filePath}
@@ -145,13 +144,13 @@ func doReadWriteReadOnlyTest(ctx context.Context, f *framework.Framework, source
 
 	ginkgo.By("verifying that pod will get an error when writing to a volume that is readonly")
 	_, stderr, _ := e2epod.ExecCommandInContainerWithFullOutput(f, podName, containerName, writecmd...)
-	gomega.Expect(stderr).To(gomega.Equal("Access is denied."))
+	framework.ExpectEqual(stderr, "Access is denied.")
 
 	ginkgo.By("verifying that pod can read from a volume that is readonly")
 	readcmd := []string{"cmd", "/c", "type", filePath}
 	readout, readerr, err := e2epod.ExecCommandInContainerWithFullOutput(f, podName, containerName, readcmd...)
 	readmsg := fmt.Sprintf("cmd: %v, stdout: %q, stderr: %q", readcmd, readout, readerr)
-	gomega.Expect(readout).To(gomega.Equal("windows-volume-test"))
+	framework.ExpectEqual(readout, "windows-volume-test")
 	framework.ExpectNoError(err, readmsg)
 }
 

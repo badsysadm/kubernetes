@@ -34,7 +34,6 @@ import (
 	"k8s.io/kubernetes/pkg/controlplane"
 	"k8s.io/kubernetes/pkg/controlplane/reconcilers"
 	"k8s.io/kubernetes/test/integration/framework"
-	"k8s.io/kubernetes/test/utils/ktesting"
 )
 
 func TestWebhookLoopback(t *testing.T) {
@@ -42,11 +41,7 @@ func TestWebhookLoopback(t *testing.T) {
 
 	called := int32(0)
 
-	_, ctx := ktesting.NewTestContext(t)
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
-	client, _, tearDownFn := framework.StartTestServer(ctx, t, framework.TestServerSetup{
+	client, _, tearDownFn := framework.StartTestServer(t, framework.TestServerSetup{
 		ModifyServerRunOptions: func(opts *options.ServerRunOptions) {
 		},
 		ModifyServerConfig: func(config *controlplane.Config) {
@@ -55,14 +50,14 @@ func TestWebhookLoopback(t *testing.T) {
 
 			// Hook into audit to watch requests
 			config.GenericConfig.AuditBackend = auditSinkFunc(func(events ...*auditinternal.Event) {})
-			config.GenericConfig.AuditPolicyRuleEvaluator = auditPolicyRuleEvaluator(func(attrs authorizer.Attributes) audit.RequestAuditConfig {
+			config.GenericConfig.AuditPolicyRuleEvaluator = auditPolicyRuleEvaluator(func(attrs authorizer.Attributes) audit.RequestAuditConfigWithLevel {
 				if attrs.GetPath() == webhookPath {
 					if attrs.GetUser().GetName() != "system:apiserver" {
 						t.Errorf("expected user %q, got %q", "system:apiserver", attrs.GetUser().GetName())
 					}
 					atomic.AddInt32(&called, 1)
 				}
-				return audit.RequestAuditConfig{
+				return audit.RequestAuditConfigWithLevel{
 					Level: auditinternal.LevelNone,
 				}
 			})
@@ -72,7 +67,7 @@ func TestWebhookLoopback(t *testing.T) {
 
 	fail := admissionregistrationv1.Fail
 	noSideEffects := admissionregistrationv1.SideEffectClassNone
-	_, err := client.AdmissionregistrationV1().MutatingWebhookConfigurations().Create(ctx, &admissionregistrationv1.MutatingWebhookConfiguration{
+	_, err := client.AdmissionregistrationV1().MutatingWebhookConfigurations().Create(context.TODO(), &admissionregistrationv1.MutatingWebhookConfiguration{
 		ObjectMeta: metav1.ObjectMeta{Name: "webhooktest.example.com"},
 		Webhooks: []admissionregistrationv1.MutatingWebhook{{
 			Name: "webhooktest.example.com",
@@ -93,7 +88,7 @@ func TestWebhookLoopback(t *testing.T) {
 	}
 
 	err = wait.PollImmediate(100*time.Millisecond, 30*time.Second, func() (done bool, err error) {
-		_, err = client.CoreV1().ConfigMaps("default").Create(ctx, &v1.ConfigMap{
+		_, err = client.CoreV1().ConfigMaps("default").Create(context.TODO(), &v1.ConfigMap{
 			ObjectMeta: metav1.ObjectMeta{Name: "webhook-test"},
 			Data:       map[string]string{"invalid key": "value"},
 		}, metav1.CreateOptions{})
@@ -112,9 +107,9 @@ func TestWebhookLoopback(t *testing.T) {
 	}
 }
 
-type auditPolicyRuleEvaluator func(authorizer.Attributes) audit.RequestAuditConfig
+type auditPolicyRuleEvaluator func(authorizer.Attributes) audit.RequestAuditConfigWithLevel
 
-func (f auditPolicyRuleEvaluator) EvaluatePolicyRule(attrs authorizer.Attributes) audit.RequestAuditConfig {
+func (f auditPolicyRuleEvaluator) EvaluatePolicyRule(attrs authorizer.Attributes) audit.RequestAuditConfigWithLevel {
 	return f(attrs)
 }
 

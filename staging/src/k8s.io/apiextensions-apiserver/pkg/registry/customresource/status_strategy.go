@@ -18,15 +18,14 @@ package customresource
 
 import (
 	"context"
-	"fmt"
 
 	"sigs.k8s.io/structured-merge-diff/v4/fieldpath"
 
+	"k8s.io/apiextensions-apiserver/pkg/apiserver/schema/cel"
 	structurallisttype "k8s.io/apiextensions-apiserver/pkg/apiserver/schema/listtype"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
-	celconfig "k8s.io/apiserver/pkg/apis/cel"
 )
 
 type statusStrategy struct {
@@ -85,31 +84,36 @@ func (a statusStrategy) PrepareForUpdate(ctx context.Context, obj, old runtime.O
 
 // ValidateUpdate is the default update validation for an end user updating status.
 func (a statusStrategy) ValidateUpdate(ctx context.Context, obj, old runtime.Object) field.ErrorList {
+	var errs field.ErrorList
+	errs = append(errs, a.customResourceStrategy.validator.ValidateStatusUpdate(ctx, obj, old, a.scale)...)
+
 	uNew, ok := obj.(*unstructured.Unstructured)
 	if !ok {
-		return field.ErrorList{field.Invalid(field.NewPath(""), obj, fmt.Sprintf("has type %T. Must be a pointer to an Unstructured type", obj))}
+		return errs
 	}
 	uOld, ok := old.(*unstructured.Unstructured)
+	var oldObject map[string]interface{}
 	if !ok {
-		return field.ErrorList{field.Invalid(field.NewPath(""), old, fmt.Sprintf("has type %T. Must be a pointer to an Unstructured type", old))}
+		oldObject = nil
+	} else {
+		oldObject = uOld.Object
 	}
 
-	var errs field.ErrorList
-	errs = append(errs, a.customResourceStrategy.validator.ValidateStatusUpdate(ctx, uNew, uOld, a.scale)...)
+	v := obj.GetObjectKind().GroupVersionKind().Version
 
 	// ratcheting validation of x-kubernetes-list-type value map and set
-	if newErrs := structurallisttype.ValidateListSetsAndMaps(nil, a.structuralSchema, uNew.Object); len(newErrs) > 0 {
-		if oldErrs := structurallisttype.ValidateListSetsAndMaps(nil, a.structuralSchema, uOld.Object); len(oldErrs) == 0 {
+	if newErrs := structurallisttype.ValidateListSetsAndMaps(nil, a.structuralSchemas[v], uNew.Object); len(newErrs) > 0 {
+		if oldErrs := structurallisttype.ValidateListSetsAndMaps(nil, a.structuralSchemas[v], oldObject); len(oldErrs) == 0 {
 			errs = append(errs, newErrs...)
 		}
 	}
 
 	// validate x-kubernetes-validations rules
-	if celValidator := a.customResourceStrategy.celValidator; celValidator != nil {
+	if celValidator, ok := a.customResourceStrategy.celValidators[v]; ok {
 		if has, err := hasBlockingErr(errs); has {
 			errs = append(errs, err)
 		} else {
-			err, _ := celValidator.Validate(ctx, nil, a.customResourceStrategy.structuralSchema, uNew.Object, uOld.Object, celconfig.RuntimeCELCostBudget)
+			err, _ := celValidator.Validate(ctx, nil, a.customResourceStrategy.structuralSchemas[v], uNew.Object, oldObject, cel.RuntimeCELCostBudget)
 			errs = append(errs, err...)
 		}
 	}

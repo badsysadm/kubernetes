@@ -49,14 +49,14 @@ func (d durations) Swap(i, j int)      { d[i], d[j] = d[j], d[i] }
 
 var _ = common.SIGDescribe("Service endpoints latency", func() {
 	f := framework.NewDefaultFramework("svc-latency")
-	f.NamespacePodSecurityLevel = admissionapi.LevelBaseline
+	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelBaseline
 
 	/*
 		Release: v1.9
 		Testname: Service endpoint latency, thresholds
 		Description: Run 100 iterations of create service with the Pod running the pause image, measure the time it takes for creating the service and the endpoint with the service name is available. These durations are captured for 100 iterations, then the durations are sorted to compute 50th, 90th and 99th percentile. The single server latency MUST not exceed liberally set thresholds of 20s for 50th percentile and 50s for the 90th percentile.
 	*/
-	framework.ConformanceIt("should not be very high", func(ctx context.Context) {
+	framework.ConformanceIt("should not be very high ", func() {
 		const (
 			// These are very generous criteria. Ideally we will
 			// get this much lower in the future. See issue
@@ -90,7 +90,7 @@ var _ = common.SIGDescribe("Service endpoints latency", func() {
 		f.ClientSet = kubernetes.NewForConfigOrDie(cfg)
 
 		failing := sets.NewString()
-		d, err := runServiceLatencies(ctx, f, parallelTrials, totalTrials, acceptableFailureRatio)
+		d, err := runServiceLatencies(f, parallelTrials, totalTrials, acceptableFailureRatio)
 		if err != nil {
 			failing.Insert(fmt.Sprintf("Not all RC/pod/service trials succeeded: %v", err))
 		}
@@ -134,7 +134,7 @@ var _ = common.SIGDescribe("Service endpoints latency", func() {
 	})
 })
 
-func runServiceLatencies(ctx context.Context, f *framework.Framework, inParallel, total int, acceptableFailureRatio float32) (output []time.Duration, err error) {
+func runServiceLatencies(f *framework.Framework, inParallel, total int, acceptableFailureRatio float32) (output []time.Duration, err error) {
 	cfg := testutils.RCConfig{
 		Client:       f.ClientSet,
 		Image:        imageutils.GetPauseImageName(),
@@ -143,7 +143,7 @@ func runServiceLatencies(ctx context.Context, f *framework.Framework, inParallel
 		Replicas:     1,
 		PollInterval: time.Second,
 	}
-	if err := e2erc.RunRC(ctx, cfg); err != nil {
+	if err := e2erc.RunRC(cfg); err != nil {
 		return nil, err
 	}
 
@@ -152,13 +152,12 @@ func runServiceLatencies(ctx context.Context, f *framework.Framework, inParallel
 	// consumes the endpoints data, so it seems like the right thing to
 	// test.
 	endpointQueries := newQuerier()
-	startEndpointWatcher(ctx, f, endpointQueries)
+	startEndpointWatcher(f, endpointQueries)
 	defer close(endpointQueries.stop)
 
 	// run one test and throw it away-- this is to make sure that the pod's
 	// ready status has propagated.
-	_, err = singleServiceLatency(ctx, f, cfg.Name, endpointQueries)
-	framework.ExpectNoError(err)
+	singleServiceLatency(f, cfg.Name, endpointQueries)
 
 	// These channels are never closed, and each attempt sends on exactly
 	// one of these channels, so the sum of the things sent over them will
@@ -172,7 +171,7 @@ func runServiceLatencies(ctx context.Context, f *framework.Framework, inParallel
 			defer ginkgo.GinkgoRecover()
 			blocker <- struct{}{}
 			defer func() { <-blocker }()
-			if d, err := singleServiceLatency(ctx, f, cfg.Name, endpointQueries); err != nil {
+			if d, err := singleServiceLatency(f, cfg.Name, endpointQueries); err != nil {
 				errs <- err
 			} else {
 				durations <- d
@@ -296,15 +295,15 @@ func (eq *endpointQueries) added(e *v1.Endpoints) {
 }
 
 // blocks until it has finished syncing.
-func startEndpointWatcher(ctx context.Context, f *framework.Framework, q *endpointQueries) {
+func startEndpointWatcher(f *framework.Framework, q *endpointQueries) {
 	_, controller := cache.NewInformer(
 		&cache.ListWatch{
 			ListFunc: func(options metav1.ListOptions) (runtime.Object, error) {
-				obj, err := f.ClientSet.CoreV1().Endpoints(f.Namespace.Name).List(ctx, options)
+				obj, err := f.ClientSet.CoreV1().Endpoints(f.Namespace.Name).List(context.TODO(), options)
 				return runtime.Object(obj), err
 			},
 			WatchFunc: func(options metav1.ListOptions) (watch.Interface, error) {
-				return f.ClientSet.CoreV1().Endpoints(f.Namespace.Name).Watch(ctx, options)
+				return f.ClientSet.CoreV1().Endpoints(f.Namespace.Name).Watch(context.TODO(), options)
 			},
 		},
 		&v1.Endpoints{},
@@ -335,7 +334,7 @@ func startEndpointWatcher(ctx context.Context, f *framework.Framework, q *endpoi
 	}
 }
 
-func singleServiceLatency(ctx context.Context, f *framework.Framework, name string, q *endpointQueries) (time.Duration, error) {
+func singleServiceLatency(f *framework.Framework, name string, q *endpointQueries) (time.Duration, error) {
 	// Make a service that points to that pod.
 	svc := &v1.Service{
 		ObjectMeta: metav1.ObjectMeta{
@@ -349,7 +348,7 @@ func singleServiceLatency(ctx context.Context, f *framework.Framework, name stri
 		},
 	}
 	startTime := time.Now()
-	gotSvc, err := f.ClientSet.CoreV1().Services(f.Namespace.Name).Create(ctx, svc, metav1.CreateOptions{})
+	gotSvc, err := f.ClientSet.CoreV1().Services(f.Namespace.Name).Create(context.TODO(), svc, metav1.CreateOptions{})
 	if err != nil {
 		return 0, err
 	}

@@ -17,6 +17,7 @@ import (
 	"unicode/utf16"
 	"unsafe"
 
+	"golang.org/x/sys/internal/unsafeheader"
 	"golang.org/x/sys/windows"
 )
 
@@ -198,7 +199,12 @@ func (m *Mgr) ListServices() ([]string, error) {
 	if servicesReturned == 0 {
 		return nil, nil
 	}
-	services := unsafe.Slice((*windows.ENUM_SERVICE_STATUS_PROCESS)(unsafe.Pointer(&buf[0])), int(servicesReturned))
+
+	var services []windows.ENUM_SERVICE_STATUS_PROCESS
+	hdr := (*unsafeheader.Slice)(unsafe.Pointer(&services))
+	hdr.Data = unsafe.Pointer(&buf[0])
+	hdr.Len = int(servicesReturned)
+	hdr.Cap = int(servicesReturned)
 
 	var names []string
 	for _, s := range services {

@@ -21,7 +21,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	v1 "k8s.io/api/core/v1"
+	"k8s.io/api/core/v1"
 	discovery "k8s.io/api/discovery/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -29,7 +29,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/client-go/kubernetes/fake"
 	k8stesting "k8s.io/client-go/testing"
-	"k8s.io/utils/pointer"
+	utilpointer "k8s.io/utils/pointer"
 )
 
 func TestNewEndpointSlice(t *testing.T) {
@@ -193,7 +193,7 @@ func TestAddressToEndpoint(t *testing.T) {
 	epAddress := v1.EndpointAddress{
 		IP:       "10.1.2.3",
 		Hostname: "foo",
-		NodeName: pointer.String("node-abc"),
+		NodeName: utilpointer.StringPtr("node-abc"),
 		TargetRef: &v1.ObjectReference{
 			APIVersion: "v1",
 			Kind:       "Pod",
@@ -204,9 +204,9 @@ func TestAddressToEndpoint(t *testing.T) {
 	ready := true
 	expectedEndpoint := discovery.Endpoint{
 		Addresses: []string{"10.1.2.3"},
-		Hostname:  pointer.String("foo"),
+		Hostname:  utilpointer.StringPtr("foo"),
 		Conditions: discovery.EndpointConditions{
-			Ready: pointer.BoolPtr(true),
+			Ready: utilpointer.BoolPtr(true),
 		},
 		TargetRef: &v1.ObjectReference{
 			APIVersion: "v1",
@@ -214,7 +214,7 @@ func TestAddressToEndpoint(t *testing.T) {
 			Namespace:  "default",
 			Name:       "foo",
 		},
-		NodeName: pointer.String("node-abc"),
+		NodeName: utilpointer.StringPtr("node-abc"),
 	}
 
 	ep := addressToEndpoint(epAddress, ready)

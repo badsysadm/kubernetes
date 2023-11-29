@@ -56,10 +56,10 @@ func TestPortRange(t *testing.T) {
 		pr := &PortRange{}
 		var f flag.Value = pr
 		err := f.Set(tc.input)
-		if err != nil && tc.success {
+		if err != nil && tc.success == true {
 			t.Errorf("expected success, got %q", err)
 			continue
-		} else if err == nil && !tc.success {
+		} else if err == nil && tc.success == false {
 			t.Errorf("expected failure %#v", testCases[i])
 			continue
 		} else if tc.success {

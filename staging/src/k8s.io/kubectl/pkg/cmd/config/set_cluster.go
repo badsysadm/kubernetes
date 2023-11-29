@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 
@@ -59,10 +60,10 @@ var (
 		# Disable cert checking for the e2e cluster entry
 		kubectl config set-cluster e2e --insecure-skip-tls-verify=true
 
-		# Set the custom TLS server name to use for validation for the e2e cluster entry
+		# Set custom TLS server name to use for validation for the e2e cluster entry
 		kubectl config set-cluster e2e --tls-server-name=my-cluster-name
 
-		# Set the proxy URL for the e2e cluster entry
+		# Set proxy url for the e2e cluster entry
 		kubectl config set-cluster e2e --proxy-url=https://1.2.3.4`)
 )
 
@@ -146,7 +147,7 @@ func (o *setClusterOptions) modifyCluster(existingCluster clientcmdapi.Cluster) 
 	if o.certificateAuthority.Provided() {
 		caPath := o.certificateAuthority.Value()
 		if o.embedCAData.Value() {
-			modifiedCluster.CertificateAuthorityData, _ = os.ReadFile(caPath)
+			modifiedCluster.CertificateAuthorityData, _ = ioutil.ReadFile(caPath)
 			modifiedCluster.InsecureSkipTLSVerify = false
 			modifiedCluster.CertificateAuthority = ""
 		} else {

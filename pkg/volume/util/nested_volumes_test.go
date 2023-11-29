@@ -17,6 +17,7 @@ limitations under the License.
 package util
 
 import (
+	"io/ioutil"
 	"os"
 	"path/filepath"
 	"testing"
@@ -143,7 +144,7 @@ func TestGetNestedMountpoints(t *testing.T) {
 			name:     "Big Pod",
 			err:      false,
 			volname:  "vol1",
-			expected: sets.NewString(filepath.Join("sub1", "sub2", "sub3"), filepath.Join("sub1", "sub2", "sub4"), filepath.Join("sub1", "sub2", "sub6"), "sub"),
+			expected: sets.NewString("sub1/sub2/sub3", "sub1/sub2/sub4", "sub1/sub2/sub6", "sub"),
 			pod: v1.Pod{
 				ObjectMeta: metav1.ObjectMeta{
 					Namespace: testNamespace,
@@ -201,7 +202,7 @@ func TestGetNestedMountpoints(t *testing.T) {
 		},
 	}
 	for _, test := range tc {
-		dir, err := os.MkdirTemp("", "TestMakeNestedMountpoints.")
+		dir, err := ioutil.TempDir("", "TestMakeNestedMountpoints.")
 		if err != nil {
 			t.Errorf("Unexpected error trying to create temp directory: %v", err)
 			return

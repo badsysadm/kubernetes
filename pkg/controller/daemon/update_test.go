@@ -27,16 +27,15 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/intstr"
-	"k8s.io/klog/v2/ktesting"
+	"k8s.io/klog/v2"
 	podutil "k8s.io/kubernetes/pkg/api/v1/pod"
 	"k8s.io/kubernetes/pkg/controller/daemon/util"
 	testingclock "k8s.io/utils/clock/testing"
 )
 
 func TestDaemonSetUpdatesPods(t *testing.T) {
-	_, ctx := ktesting.NewTestContext(t)
 	ds := newDaemonSet("foo")
-	manager, podControl, _, err := newTestController(ctx, ds)
+	manager, podControl, _, err := newTestController(ds)
 	if err != nil {
 		t.Fatalf("error creating DaemonSets controller: %v", err)
 	}
@@ -48,7 +47,7 @@ func TestDaemonSetUpdatesPods(t *testing.T) {
 
 	ds.Spec.Template.Spec.Containers[0].Image = "foo2/bar2"
 	ds.Spec.UpdateStrategy.Type = apps.RollingUpdateDaemonSetStrategyType
-	intStr := intstr.FromInt32(int32(maxUnavailable))
+	intStr := intstr.FromInt(maxUnavailable)
 	ds.Spec.UpdateStrategy.RollingUpdate = &apps.RollingUpdateDaemonSet{MaxUnavailable: &intStr}
 	manager.dsStore.Update(ds)
 
@@ -76,9 +75,8 @@ func TestDaemonSetUpdatesPods(t *testing.T) {
 }
 
 func TestDaemonSetUpdatesPodsWithMaxSurge(t *testing.T) {
-	_, ctx := ktesting.NewTestContext(t)
 	ds := newDaemonSet("foo")
-	manager, podControl, _, err := newTestController(ctx, ds)
+	manager, podControl, _, err := newTestController(ds)
 	if err != nil {
 		t.Fatalf("error creating DaemonSets controller: %v", err)
 	}
@@ -90,7 +88,7 @@ func TestDaemonSetUpdatesPodsWithMaxSurge(t *testing.T) {
 	// surge is thhe controlling amount
 	maxSurge := 2
 	ds.Spec.Template.Spec.Containers[0].Image = "foo2/bar2"
-	ds.Spec.UpdateStrategy = newUpdateSurge(intstr.FromInt32(int32(maxSurge)))
+	ds.Spec.UpdateStrategy = newUpdateSurge(intstr.FromInt(maxSurge))
 	manager.dsStore.Update(ds)
 
 	clearExpectations(t, manager, ds, podControl)
@@ -117,82 +115,9 @@ func TestDaemonSetUpdatesPodsWithMaxSurge(t *testing.T) {
 	expectSyncDaemonSets(t, manager, ds, podControl, 0, 0, 0)
 }
 
-func TestDaemonSetUpdatesPodsNotMatchTainstWithMaxSurge(t *testing.T) {
-	_, ctx := ktesting.NewTestContext(t)
-
+func TestDaemonSetUpdatesWhenNewPosIsNotReady(t *testing.T) {
 	ds := newDaemonSet("foo")
-	maxSurge := 1
-	ds.Spec.UpdateStrategy = newUpdateSurge(intstr.FromInt(maxSurge))
-	tolerations := []v1.Toleration{
-		{Key: "node-role.kubernetes.io/control-plane", Operator: v1.TolerationOpExists},
-	}
-	setDaemonSetToleration(ds, tolerations)
-	manager, podControl, _, err := newTestController(ctx, ds)
-	if err != nil {
-		t.Fatalf("error creating DaemonSets controller: %v", err)
-	}
-	err = manager.dsStore.Add(ds)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// Add five nodes and taint to one node
-	addNodes(manager.nodeStore, 0, 5, nil)
-	taints := []v1.Taint{
-		{Key: "node-role.kubernetes.io/control-plane", Effect: v1.TaintEffectNoSchedule},
-	}
-	node := newNode("node-0", nil)
-	setNodeTaint(node, taints)
-	err = manager.nodeStore.Update(node)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// Create DaemonSet with toleration
-	expectSyncDaemonSets(t, manager, ds, podControl, 5, 0, 0)
-	markPodsReady(podControl.podStore)
-
-	// RollingUpdate DaemonSet without toleration
-	ds.Spec.Template.Spec.Tolerations = nil
-	err = manager.dsStore.Update(ds)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	clearExpectations(t, manager, ds, podControl)
-	expectSyncDaemonSets(t, manager, ds, podControl, maxSurge, 1, 0)
-	clearExpectations(t, manager, ds, podControl)
-	expectSyncDaemonSets(t, manager, ds, podControl, 0, 0, 0)
-	markPodsReady(podControl.podStore)
-
-	clearExpectations(t, manager, ds, podControl)
-	expectSyncDaemonSets(t, manager, ds, podControl, maxSurge, maxSurge, 0)
-	clearExpectations(t, manager, ds, podControl)
-	expectSyncDaemonSets(t, manager, ds, podControl, 0, 0, 0)
-	markPodsReady(podControl.podStore)
-
-	clearExpectations(t, manager, ds, podControl)
-	expectSyncDaemonSets(t, manager, ds, podControl, maxSurge, maxSurge, 0)
-	clearExpectations(t, manager, ds, podControl)
-	expectSyncDaemonSets(t, manager, ds, podControl, 0, 0, 0)
-	markPodsReady(podControl.podStore)
-
-	clearExpectations(t, manager, ds, podControl)
-	expectSyncDaemonSets(t, manager, ds, podControl, maxSurge, maxSurge, 0)
-	clearExpectations(t, manager, ds, podControl)
-	expectSyncDaemonSets(t, manager, ds, podControl, 0, 0, 0)
-	markPodsReady(podControl.podStore)
-
-	clearExpectations(t, manager, ds, podControl)
-	expectSyncDaemonSets(t, manager, ds, podControl, 0, maxSurge, 0)
-	clearExpectations(t, manager, ds, podControl)
-	expectSyncDaemonSets(t, manager, ds, podControl, 0, 0, 0)
-}
-
-func TestDaemonSetUpdatesWhenNewPodIsNotReady(t *testing.T) {
-	_, ctx := ktesting.NewTestContext(t)
-	ds := newDaemonSet("foo")
-	manager, podControl, _, err := newTestController(ctx, ds)
+	manager, podControl, _, err := newTestController(ds)
 	if err != nil {
 		t.Fatalf("error creating DaemonSets controller: %v", err)
 	}
@@ -207,7 +132,7 @@ func TestDaemonSetUpdatesWhenNewPodIsNotReady(t *testing.T) {
 
 	ds.Spec.Template.Spec.Containers[0].Image = "foo2/bar2"
 	ds.Spec.UpdateStrategy.Type = apps.RollingUpdateDaemonSetStrategyType
-	intStr := intstr.FromInt32(int32(maxUnavailable))
+	intStr := intstr.FromInt(maxUnavailable)
 	ds.Spec.UpdateStrategy.RollingUpdate = &apps.RollingUpdateDaemonSet{MaxUnavailable: &intStr}
 	err = manager.dsStore.Update(ds)
 	if err != nil {
@@ -227,9 +152,8 @@ func TestDaemonSetUpdatesWhenNewPodIsNotReady(t *testing.T) {
 }
 
 func TestDaemonSetUpdatesAllOldPodsNotReady(t *testing.T) {
-	_, ctx := ktesting.NewTestContext(t)
 	ds := newDaemonSet("foo")
-	manager, podControl, _, err := newTestController(ctx, ds)
+	manager, podControl, _, err := newTestController(ds)
 	if err != nil {
 		t.Fatalf("error creating DaemonSets controller: %v", err)
 	}
@@ -243,7 +167,7 @@ func TestDaemonSetUpdatesAllOldPodsNotReady(t *testing.T) {
 
 	ds.Spec.Template.Spec.Containers[0].Image = "foo2/bar2"
 	ds.Spec.UpdateStrategy.Type = apps.RollingUpdateDaemonSetStrategyType
-	intStr := intstr.FromInt32(int32(maxUnavailable))
+	intStr := intstr.FromInt(maxUnavailable)
 	ds.Spec.UpdateStrategy.RollingUpdate = &apps.RollingUpdateDaemonSet{MaxUnavailable: &intStr}
 	err = manager.dsStore.Update(ds)
 	if err != nil {
@@ -263,9 +187,8 @@ func TestDaemonSetUpdatesAllOldPodsNotReady(t *testing.T) {
 }
 
 func TestDaemonSetUpdatesAllOldPodsNotReadyMaxSurge(t *testing.T) {
-	_, ctx := ktesting.NewTestContext(t)
 	ds := newDaemonSet("foo")
-	manager, podControl, _, err := newTestController(ctx, ds)
+	manager, podControl, _, err := newTestController(ds)
 	if err != nil {
 		t.Fatalf("error creating DaemonSets controller: %v", err)
 	}
@@ -275,7 +198,7 @@ func TestDaemonSetUpdatesAllOldPodsNotReadyMaxSurge(t *testing.T) {
 
 	maxSurge := 3
 	ds.Spec.Template.Spec.Containers[0].Image = "foo2/bar2"
-	ds.Spec.UpdateStrategy = newUpdateSurge(intstr.FromInt32(int32(maxSurge)))
+	ds.Spec.UpdateStrategy = newUpdateSurge(intstr.FromInt(maxSurge))
 	manager.dsStore.Update(ds)
 
 	// all old pods are unavailable so should be surged
@@ -361,7 +284,6 @@ func podsByNodeMatchingHash(dsc *daemonSetsController, hash string) map[string][
 
 func setPodReadiness(t *testing.T, dsc *daemonSetsController, ready bool, count int, fn func(*v1.Pod) bool) {
 	t.Helper()
-	logger, _ := ktesting.NewTestContext(t)
 	for _, obj := range dsc.podStore.List() {
 		if count <= 0 {
 			break
@@ -388,7 +310,7 @@ func setPodReadiness(t *testing.T, dsc *daemonSetsController, ready bool, count 
 		// TODO: workaround UpdatePodCondition calling time.Now() directly
 		setCondition := podutil.GetPodReadyCondition(pod.Status)
 		setCondition.LastTransitionTime.Time = dsc.failedPodsBackoff.Clock.Now()
-		logger.Info("marked pod ready", "pod", pod.Name, "ready", ready)
+		klog.Infof("marked pod %s ready=%t", pod.Name, ready)
 		count--
 	}
 	if count > 0 {
@@ -407,9 +329,8 @@ func currentDSHash(dsc *daemonSetsController, ds *apps.DaemonSet) (string, error
 }
 
 func TestDaemonSetUpdatesNoTemplateChanged(t *testing.T) {
-	_, ctx := ktesting.NewTestContext(t)
 	ds := newDaemonSet("foo")
-	manager, podControl, _, err := newTestController(ctx, ds)
+	manager, podControl, _, err := newTestController(ds)
 	if err != nil {
 		t.Fatalf("error creating DaemonSets controller: %v", err)
 	}
@@ -419,7 +340,7 @@ func TestDaemonSetUpdatesNoTemplateChanged(t *testing.T) {
 	expectSyncDaemonSets(t, manager, ds, podControl, 5, 0, 0)
 
 	ds.Spec.UpdateStrategy.Type = apps.RollingUpdateDaemonSetStrategyType
-	intStr := intstr.FromInt32(int32(maxUnavailable))
+	intStr := intstr.FromInt(maxUnavailable)
 	ds.Spec.UpdateStrategy.RollingUpdate = &apps.RollingUpdateDaemonSet{MaxUnavailable: &intStr}
 	manager.dsStore.Update(ds)
 
@@ -430,7 +351,7 @@ func TestDaemonSetUpdatesNoTemplateChanged(t *testing.T) {
 }
 
 func newUpdateSurge(value intstr.IntOrString) apps.DaemonSetUpdateStrategy {
-	zero := intstr.FromInt32(0)
+	zero := intstr.FromInt(0)
 	return apps.DaemonSetUpdateStrategy{
 		Type: apps.RollingUpdateDaemonSetStrategyType,
 		RollingUpdate: &apps.RollingUpdateDaemonSet{
@@ -451,28 +372,27 @@ func newUpdateUnavailable(value intstr.IntOrString) apps.DaemonSetUpdateStrategy
 
 func TestGetUnavailableNumbers(t *testing.T) {
 	cases := []struct {
-		name                   string
-		ManagerFunc            func(ctx context.Context) *daemonSetsController
-		ds                     *apps.DaemonSet
-		nodeToPods             map[string][]*v1.Pod
-		maxSurge               int
-		maxUnavailable         int
-		desiredNumberScheduled int
-		emptyNodes             int
-		Err                    error
+		name           string
+		Manager        *daemonSetsController
+		ds             *apps.DaemonSet
+		nodeToPods     map[string][]*v1.Pod
+		maxSurge       int
+		maxUnavailable int
+		emptyNodes     int
+		Err            error
 	}{
 		{
 			name: "No nodes",
-			ManagerFunc: func(ctx context.Context) *daemonSetsController {
-				manager, _, _, err := newTestController(ctx)
+			Manager: func() *daemonSetsController {
+				manager, _, _, err := newTestController()
 				if err != nil {
 					t.Fatalf("error creating DaemonSets controller: %v", err)
 				}
 				return manager
-			},
+			}(),
 			ds: func() *apps.DaemonSet {
 				ds := newDaemonSet("x")
-				ds.Spec.UpdateStrategy = newUpdateUnavailable(intstr.FromInt32(0))
+				ds.Spec.UpdateStrategy = newUpdateUnavailable(intstr.FromInt(0))
 				return ds
 			}(),
 			nodeToPods:     make(map[string][]*v1.Pod),
@@ -481,17 +401,17 @@ func TestGetUnavailableNumbers(t *testing.T) {
 		},
 		{
 			name: "Two nodes with ready pods",
-			ManagerFunc: func(ctx context.Context) *daemonSetsController {
-				manager, _, _, err := newTestController(ctx)
+			Manager: func() *daemonSetsController {
+				manager, _, _, err := newTestController()
 				if err != nil {
 					t.Fatalf("error creating DaemonSets controller: %v", err)
 				}
 				addNodes(manager.nodeStore, 0, 2, nil)
 				return manager
-			},
+			}(),
 			ds: func() *apps.DaemonSet {
 				ds := newDaemonSet("x")
-				ds.Spec.UpdateStrategy = newUpdateUnavailable(intstr.FromInt32(1))
+				ds.Spec.UpdateStrategy = newUpdateUnavailable(intstr.FromInt(1))
 				return ds
 			}(),
 			nodeToPods: func() map[string][]*v1.Pod {
@@ -504,23 +424,22 @@ func TestGetUnavailableNumbers(t *testing.T) {
 				mapping["node-1"] = []*v1.Pod{pod1}
 				return mapping
 			}(),
-			maxUnavailable:         1,
-			desiredNumberScheduled: 2,
-			emptyNodes:             0,
+			maxUnavailable: 1,
+			emptyNodes:     0,
 		},
 		{
 			name: "Two nodes, one node without pods",
-			ManagerFunc: func(ctx context.Context) *daemonSetsController {
-				manager, _, _, err := newTestController(ctx)
+			Manager: func() *daemonSetsController {
+				manager, _, _, err := newTestController()
 				if err != nil {
 					t.Fatalf("error creating DaemonSets controller: %v", err)
 				}
 				addNodes(manager.nodeStore, 0, 2, nil)
 				return manager
-			},
+			}(),
 			ds: func() *apps.DaemonSet {
 				ds := newDaemonSet("x")
-				ds.Spec.UpdateStrategy = newUpdateUnavailable(intstr.FromInt32(0))
+				ds.Spec.UpdateStrategy = newUpdateUnavailable(intstr.FromInt(0))
 				return ds
 			}(),
 			nodeToPods: func() map[string][]*v1.Pod {
@@ -530,23 +449,22 @@ func TestGetUnavailableNumbers(t *testing.T) {
 				mapping["node-0"] = []*v1.Pod{pod0}
 				return mapping
 			}(),
-			maxUnavailable:         1,
-			desiredNumberScheduled: 2,
-			emptyNodes:             1,
+			maxUnavailable: 1,
+			emptyNodes:     1,
 		},
 		{
 			name: "Two nodes, one node without pods, surge",
-			ManagerFunc: func(ctx context.Context) *daemonSetsController {
-				manager, _, _, err := newTestController(ctx)
+			Manager: func() *daemonSetsController {
+				manager, _, _, err := newTestController()
 				if err != nil {
 					t.Fatalf("error creating DaemonSets controller: %v", err)
 				}
 				addNodes(manager.nodeStore, 0, 2, nil)
 				return manager
-			},
+			}(),
 			ds: func() *apps.DaemonSet {
 				ds := newDaemonSet("x")
-				ds.Spec.UpdateStrategy = newUpdateSurge(intstr.FromInt32(0))
+				ds.Spec.UpdateStrategy = newUpdateSurge(intstr.FromInt(0))
 				return ds
 			}(),
 			nodeToPods: func() map[string][]*v1.Pod {
@@ -556,20 +474,19 @@ func TestGetUnavailableNumbers(t *testing.T) {
 				mapping["node-0"] = []*v1.Pod{pod0}
 				return mapping
 			}(),
-			maxUnavailable:         1,
-			desiredNumberScheduled: 2,
-			emptyNodes:             1,
+			maxUnavailable: 1,
+			emptyNodes:     1,
 		},
 		{
 			name: "Two nodes with pods, MaxUnavailable in percents",
-			ManagerFunc: func(ctx context.Context) *daemonSetsController {
-				manager, _, _, err := newTestController(ctx)
+			Manager: func() *daemonSetsController {
+				manager, _, _, err := newTestController()
 				if err != nil {
 					t.Fatalf("error creating DaemonSets controller: %v", err)
 				}
 				addNodes(manager.nodeStore, 0, 2, nil)
 				return manager
-			},
+			}(),
 			ds: func() *apps.DaemonSet {
 				ds := newDaemonSet("x")
 				ds.Spec.UpdateStrategy = newUpdateUnavailable(intstr.FromString("50%"))
@@ -585,20 +502,19 @@ func TestGetUnavailableNumbers(t *testing.T) {
 				mapping["node-1"] = []*v1.Pod{pod1}
 				return mapping
 			}(),
-			maxUnavailable:         1,
-			desiredNumberScheduled: 2,
-			emptyNodes:             0,
+			maxUnavailable: 1,
+			emptyNodes:     0,
 		},
 		{
 			name: "Two nodes with pods, MaxUnavailable in percents, surge",
-			ManagerFunc: func(ctx context.Context) *daemonSetsController {
-				manager, _, _, err := newTestController(ctx)
+			Manager: func() *daemonSetsController {
+				manager, _, _, err := newTestController()
 				if err != nil {
 					t.Fatalf("error creating DaemonSets controller: %v", err)
 				}
 				addNodes(manager.nodeStore, 0, 2, nil)
 				return manager
-			},
+			}(),
 			ds: func() *apps.DaemonSet {
 				ds := newDaemonSet("x")
 				ds.Spec.UpdateStrategy = newUpdateSurge(intstr.FromString("50%"))
@@ -614,21 +530,20 @@ func TestGetUnavailableNumbers(t *testing.T) {
 				mapping["node-1"] = []*v1.Pod{pod1}
 				return mapping
 			}(),
-			maxSurge:               1,
-			maxUnavailable:         0,
-			desiredNumberScheduled: 2,
-			emptyNodes:             0,
+			maxSurge:       1,
+			maxUnavailable: 0,
+			emptyNodes:     0,
 		},
 		{
 			name: "Two nodes with pods, MaxUnavailable is 100%, surge",
-			ManagerFunc: func(ctx context.Context) *daemonSetsController {
-				manager, _, _, err := newTestController(ctx)
+			Manager: func() *daemonSetsController {
+				manager, _, _, err := newTestController()
 				if err != nil {
 					t.Fatalf("error creating DaemonSets controller: %v", err)
 				}
 				addNodes(manager.nodeStore, 0, 2, nil)
 				return manager
-			},
+			}(),
 			ds: func() *apps.DaemonSet {
 				ds := newDaemonSet("x")
 				ds.Spec.UpdateStrategy = newUpdateSurge(intstr.FromString("100%"))
@@ -644,21 +559,20 @@ func TestGetUnavailableNumbers(t *testing.T) {
 				mapping["node-1"] = []*v1.Pod{pod1}
 				return mapping
 			}(),
-			maxSurge:               2,
-			maxUnavailable:         0,
-			desiredNumberScheduled: 2,
-			emptyNodes:             0,
+			maxSurge:       2,
+			maxUnavailable: 0,
+			emptyNodes:     0,
 		},
 		{
 			name: "Two nodes with pods, MaxUnavailable in percents, pod terminating",
-			ManagerFunc: func(ctx context.Context) *daemonSetsController {
-				manager, _, _, err := newTestController(ctx)
+			Manager: func() *daemonSetsController {
+				manager, _, _, err := newTestController()
 				if err != nil {
 					t.Fatalf("error creating DaemonSets controller: %v", err)
 				}
 				addNodes(manager.nodeStore, 0, 3, nil)
 				return manager
-			},
+			}(),
 			ds: func() *apps.DaemonSet {
 				ds := newDaemonSet("x")
 				ds.Spec.UpdateStrategy = newUpdateUnavailable(intstr.FromString("50%"))
@@ -676,22 +590,19 @@ func TestGetUnavailableNumbers(t *testing.T) {
 				mapping["node-1"] = []*v1.Pod{pod1}
 				return mapping
 			}(),
-			maxUnavailable:         2,
-			desiredNumberScheduled: 3,
-			emptyNodes:             1,
+			maxUnavailable: 2,
+			emptyNodes:     1,
 		},
 	}
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			_, ctx := ktesting.NewTestContext(t)
-			manager := c.ManagerFunc(ctx)
-			manager.dsStore.Add(c.ds)
-			nodeList, err := manager.nodeLister.List(labels.Everything())
+			c.Manager.dsStore.Add(c.ds)
+			nodeList, err := c.Manager.nodeLister.List(labels.Everything())
 			if err != nil {
 				t.Fatalf("error listing nodes: %v", err)
 			}
-			maxSurge, maxUnavailable, desiredNumberScheduled, err := manager.updatedDesiredNodeCounts(ctx, c.ds, nodeList, c.nodeToPods)
+			maxSurge, maxUnavailable, err := c.Manager.updatedDesiredNodeCounts(c.ds, nodeList, c.nodeToPods)
 			if err != nil && c.Err != nil {
 				if c.Err != err {
 					t.Fatalf("Expected error: %v but got: %v", c.Err, err)
@@ -700,8 +611,8 @@ func TestGetUnavailableNumbers(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Unexpected error: %v", err)
 			}
-			if maxSurge != c.maxSurge || maxUnavailable != c.maxUnavailable || desiredNumberScheduled != c.desiredNumberScheduled {
-				t.Errorf("Wrong values. maxSurge: %d, expected %d, maxUnavailable: %d, expected: %d, desiredNumberScheduled: %d, expected: %d", maxSurge, c.maxSurge, maxUnavailable, c.maxUnavailable, desiredNumberScheduled, c.desiredNumberScheduled)
+			if maxSurge != c.maxSurge || maxUnavailable != c.maxUnavailable {
+				t.Errorf("Wrong values. maxSurge: %d, expected %d, maxUnavailable: %d, expected: %d", maxSurge, c.maxSurge, maxUnavailable, c.maxUnavailable)
 			}
 			var emptyNodes int
 			for _, pods := range c.nodeToPods {
@@ -724,44 +635,42 @@ func TestControlledHistories(t *testing.T) {
 	orphanCrNotInSameNsWithDs1 := newControllerRevision(ds1.GetName()+"-x3", ds1.GetNamespace()+"-other", ds1.Spec.Template.Labels, nil)
 	cases := []struct {
 		name                      string
-		managerFunc               func(ctx context.Context) *daemonSetsController
+		manager                   *daemonSetsController
 		historyCRAll              []*apps.ControllerRevision
 		expectControllerRevisions []*apps.ControllerRevision
 	}{
 		{
 			name: "controller revision in the same namespace",
-			managerFunc: func(ctx context.Context) *daemonSetsController {
-				manager, _, _, err := newTestController(ctx, ds1, crOfDs1, orphanCrInSameNsWithDs1)
+			manager: func() *daemonSetsController {
+				manager, _, _, err := newTestController(ds1, crOfDs1, orphanCrInSameNsWithDs1)
 				if err != nil {
 					t.Fatalf("error creating DaemonSets controller: %v", err)
 				}
 				manager.dsStore.Add(ds1)
 				return manager
-			},
+			}(),
 			historyCRAll:              []*apps.ControllerRevision{crOfDs1, orphanCrInSameNsWithDs1},
 			expectControllerRevisions: []*apps.ControllerRevision{crOfDs1, orphanCrInSameNsWithDs1},
 		},
 		{
 			name: "Skip adopting the controller revision in namespace other than the one in which DS lives",
-			managerFunc: func(ctx context.Context) *daemonSetsController {
-				manager, _, _, err := newTestController(ctx, ds1, orphanCrNotInSameNsWithDs1)
+			manager: func() *daemonSetsController {
+				manager, _, _, err := newTestController(ds1, orphanCrNotInSameNsWithDs1)
 				if err != nil {
 					t.Fatalf("error creating DaemonSets controller: %v", err)
 				}
 				manager.dsStore.Add(ds1)
 				return manager
-			},
+			}(),
 			historyCRAll:              []*apps.ControllerRevision{orphanCrNotInSameNsWithDs1},
 			expectControllerRevisions: []*apps.ControllerRevision{},
 		},
 	}
 	for _, c := range cases {
-		_, ctx := ktesting.NewTestContext(t)
-		manager := c.managerFunc(ctx)
 		for _, h := range c.historyCRAll {
-			manager.historyStore.Add(h)
+			c.manager.historyStore.Add(h)
 		}
-		crList, err := manager.controlledHistories(context.TODO(), ds1)
+		crList, err := c.manager.controlledHistories(context.TODO(), ds1)
 		if err != nil {
 			t.Fatalf("Test case: %s. Unexpected error: %v", c.name, err)
 		}

@@ -73,13 +73,13 @@ func TestAPIServiceWaitOnStart(t *testing.T) {
 	}
 	t.Cleanup(func() { etcd3Client.Close() })
 
-	t.Log("Pollute CRD path in etcd so CRD lists cannot succeed and the informer cannot sync")
+	// Pollute CRD path in etcd so CRD lists cannot succeed and the informer cannot sync
 	bogusCRDEtcdPath := path.Join("/", etcdConfig.Prefix, "apiextensions.k8s.io/customresourcedefinitions/bogus")
 	if _, err := etcd3Client.KV.Put(ctx, bogusCRDEtcdPath, `bogus data`); err != nil {
 		t.Fatal(err)
 	}
 
-	t.Log("Populate a valid CRD and managed APIService in etcd")
+	// Populate a valid CRD and managed APIService in etcd
 	if _, err := etcd3Client.KV.Put(
 		ctx,
 		path.Join("/", etcdConfig.Prefix, "apiextensions.k8s.io/customresourcedefinitions/widgets.valid.example.com"),
@@ -155,7 +155,7 @@ func TestAPIServiceWaitOnStart(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	t.Log("Populate a stale managed APIService in etcd")
+	// Populate a stale managed APIService in etcd
 	if _, err := etcd3Client.KV.Put(
 		ctx,
 		path.Join("/", etcdConfig.Prefix, "apiregistration.k8s.io/apiservices/v1.stale.example.com"),
@@ -179,7 +179,7 @@ func TestAPIServiceWaitOnStart(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	t.Log("Starting server")
+	// Start server
 	options := kastesting.NewDefaultTestServerOptions()
 	options.SkipHealthzCheck = true
 	testServer := kastesting.StartTestServerOrDie(t, options, nil, etcdConfig)
@@ -188,7 +188,7 @@ func TestAPIServiceWaitOnStart(t *testing.T) {
 	kubeClientConfig := rest.CopyConfig(testServer.ClientConfig)
 	aggregatorClient := aggregatorclient.NewForConfigOrDie(kubeClientConfig)
 
-	t.Log("Ensure both APIService objects remain")
+	// ensure both APIService objects remain
 	for i := 0; i < 10; i++ {
 		if _, err := aggregatorClient.ApiregistrationV1().APIServices().Get(ctx, "v1.valid.example.com", metav1.GetOptions{}); err != nil {
 			t.Fatal(err)
@@ -199,12 +199,13 @@ func TestAPIServiceWaitOnStart(t *testing.T) {
 		time.Sleep(time.Second)
 	}
 
-	t.Log("Clear the bogus CRD data so the informer can sync")
+	// Clear the bogus CRD data so the informer can sync
 	if _, err := etcd3Client.KV.Delete(ctx, bogusCRDEtcdPath); err != nil {
 		t.Fatal(err)
 	}
+	t.Log("cleaned up bogus CRD data")
 
-	t.Log("Ensure the stale APIService object is cleaned up")
+	// ensure the stale APIService object is cleaned up
 	if err := wait.Poll(time.Second, wait.ForeverTestTimeout, func() (bool, error) {
 		_, err := aggregatorClient.ApiregistrationV1().APIServices().Get(ctx, "v1.stale.example.com", metav1.GetOptions{})
 		if err == nil {
@@ -219,7 +220,7 @@ func TestAPIServiceWaitOnStart(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	t.Log("Ensure the valid APIService object remains")
+	// ensure the valid APIService object remains
 	for i := 0; i < 5; i++ {
 		time.Sleep(time.Second)
 		if _, err := aggregatorClient.ApiregistrationV1().APIServices().Get(ctx, "v1.valid.example.com", metav1.GetOptions{}); err != nil {
@@ -694,7 +695,6 @@ func writeKubeConfigForWardleServerToKASConnection(t *testing.T, kubeClientConfi
 		t.Fatal(err)
 	}
 
-	defer wardleToKASKubeConfigFile.Close()
 	return wardleToKASKubeConfigFile.Name()
 }
 

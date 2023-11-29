@@ -46,13 +46,11 @@ import (
 	"k8s.io/client-go/restmapper"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/controller-manager/pkg/informerfactory"
-	"k8s.io/klog/v2"
-	"k8s.io/klog/v2/ktesting"
 	kubeapiservertesting "k8s.io/kubernetes/cmd/kube-apiserver/app/testing"
 	"k8s.io/kubernetes/pkg/controller/garbagecollector"
 	"k8s.io/kubernetes/test/integration"
 	"k8s.io/kubernetes/test/integration/framework"
-	"k8s.io/utils/ptr"
+	"k8s.io/utils/pointer"
 )
 
 func getForegroundOptions() metav1.DeleteOptions {
@@ -201,7 +199,6 @@ func createRandomCustomResourceDefinition(
 }
 
 type testContext struct {
-	logger             klog.Logger
 	tearDown           func()
 	gc                 *garbagecollector.GarbageCollector
 	clientSet          clientset.Interface
@@ -261,8 +258,7 @@ func setupWithServer(t *testing.T, result *kubeapiservertesting.TestServer, work
 		t.Fatalf("failed to create garbage collector: %v", err)
 	}
 
-	logger, ctx := ktesting.NewTestContext(t)
-	ctx, cancel := context.WithCancel(ctx)
+	ctx, cancel := context.WithCancel(context.Background())
 	tearDown := func() {
 		cancel()
 		result.TearDownFn()
@@ -276,7 +272,7 @@ func setupWithServer(t *testing.T, result *kubeapiservertesting.TestServer, work
 			restMapper.Reset()
 		}, syncPeriod, ctx.Done())
 		go gc.Run(ctx, workers)
-		go gc.Sync(ctx, clientSet.Discovery(), syncPeriod)
+		go gc.Sync(clientSet.Discovery(), syncPeriod, ctx.Done())
 	}
 
 	if workerCount > 0 {
@@ -284,7 +280,6 @@ func setupWithServer(t *testing.T, result *kubeapiservertesting.TestServer, work
 	}
 
 	return &testContext{
-		logger:             logger,
 		tearDown:           tearDown,
 		gc:                 gc,
 		clientSet:          clientSet,
@@ -355,7 +350,7 @@ func testCrossNamespaceReferences(t *testing.T, watchCache bool) {
 	}
 	for i := 0; i < validChildrenCount; i++ {
 		_, err := clientSet.CoreV1().Secrets(namespaceB).Create(context.TODO(), &v1.Secret{ObjectMeta: metav1.ObjectMeta{GenerateName: "child-", OwnerReferences: []metav1.OwnerReference{
-			{Name: "parent", Kind: "ConfigMap", APIVersion: "v1", UID: parent.UID, Controller: ptr.To(false)},
+			{Name: "parent", Kind: "ConfigMap", APIVersion: "v1", UID: parent.UID, Controller: pointer.BoolPtr(false)},
 		}}}, metav1.CreateOptions{})
 		if err != nil {
 			t.Fatal(err)
@@ -369,7 +364,7 @@ func testCrossNamespaceReferences(t *testing.T, watchCache bool) {
 	for i := 0; i < 25; i++ {
 		invalidOwnerReferences = append(invalidOwnerReferences, metav1.OwnerReference{Name: "invalid", UID: types.UID(fmt.Sprintf("invalid-%d", i)), APIVersion: "test/v1", Kind: fmt.Sprintf("invalid%d", i)})
 	}
-	invalidOwnerReferences = append(invalidOwnerReferences, metav1.OwnerReference{Name: "invalid", UID: parent.UID, APIVersion: "v1", Kind: "Pod", Controller: ptr.To(false)})
+	invalidOwnerReferences = append(invalidOwnerReferences, metav1.OwnerReference{Name: "invalid", UID: parent.UID, APIVersion: "v1", Kind: "Pod", Controller: pointer.BoolPtr(false)})
 
 	for i := 0; i < workers; i++ {
 		_, err := clientSet.CoreV1().ConfigMaps(namespaceA).Create(context.TODO(), &v1.ConfigMap{ObjectMeta: metav1.ObjectMeta{GenerateName: "invalid-child-", OwnerReferences: invalidOwnerReferences}}, metav1.CreateOptions{})
@@ -384,7 +379,7 @@ func testCrossNamespaceReferences(t *testing.T, watchCache bool) {
 			ObjectMeta: metav1.ObjectMeta{
 				Labels:          map[string]string{"single-bad-reference": "true"},
 				GenerateName:    "invalid-child-b-",
-				OwnerReferences: []metav1.OwnerReference{{Name: "invalid", UID: parent.UID, APIVersion: "v1", Kind: "Pod", Controller: ptr.To(false)}},
+				OwnerReferences: []metav1.OwnerReference{{Name: "invalid", UID: parent.UID, APIVersion: "v1", Kind: "Pod", Controller: pointer.BoolPtr(false)}},
 			},
 		}, metav1.CreateOptions{})
 		if err != nil {
@@ -434,7 +429,7 @@ func testCrossNamespaceReferences(t *testing.T, watchCache bool) {
 	invalidChild, err := clientSet.CoreV1().Secrets(namespaceA).Create(context.TODO(), &v1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			GenerateName:    "invalid-child-c-",
-			OwnerReferences: []metav1.OwnerReference{{Name: "invalid", UID: parent.UID, APIVersion: "v1", Kind: "Pod", Controller: ptr.To(false)}},
+			OwnerReferences: []metav1.OwnerReference{{Name: "invalid", UID: parent.UID, APIVersion: "v1", Kind: "Pod", Controller: pointer.BoolPtr(false)}},
 		},
 	}, metav1.CreateOptions{})
 	if err != nil {
@@ -1030,9 +1025,7 @@ func TestBlockingOwnerRefDoesBlock(t *testing.T) {
 	ctx.startGC(5)
 	timeout := make(chan struct{})
 	time.AfterFunc(5*time.Second, func() { close(timeout) })
-	if !cache.WaitForCacheSync(timeout, func() bool {
-		return gc.IsSynced(ctx.logger)
-	}) {
+	if !cache.WaitForCacheSync(timeout, gc.IsSynced) {
 		t.Fatalf("failed to wait for garbage collector to be synced")
 	}
 

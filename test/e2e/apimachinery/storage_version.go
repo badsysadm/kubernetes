@@ -38,16 +38,16 @@ const (
 // This test requires that --feature-gates=APIServerIdentity=true,StorageVersionAPI=true be set on the apiserver and the controller manager
 var _ = SIGDescribe("StorageVersion resources [Feature:StorageVersionAPI]", func() {
 	f := framework.NewDefaultFramework("storage-version")
-	f.NamespacePodSecurityLevel = admissionapi.LevelPrivileged
+	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 
-	ginkgo.It("storage version with non-existing id should be GC'ed", func(ctx context.Context) {
+	ginkgo.It("storage version with non-existing id should be GC'ed", func() {
 		client := f.ClientSet
 		sv := &apiserverinternalv1alpha1.StorageVersion{
 			ObjectMeta: metav1.ObjectMeta{
 				GenerateName: svName,
 			},
 		}
-		createdSV, err := client.InternalV1alpha1().StorageVersions().Create(ctx, sv, metav1.CreateOptions{})
+		createdSV, err := client.InternalV1alpha1().StorageVersions().Create(context.TODO(), sv, metav1.CreateOptions{})
 		framework.ExpectNoError(err, "creating storage version")
 
 		// update the created sv with server storage version
@@ -63,14 +63,14 @@ var _ = SIGDescribe("StorageVersion resources [Feature:StorageVersionAPI]", func
 			CommonEncodingVersion: &version,
 		}
 		_, err = client.InternalV1alpha1().StorageVersions().UpdateStatus(
-			ctx, createdSV, metav1.UpdateOptions{})
+			context.TODO(), createdSV, metav1.UpdateOptions{})
 		framework.ExpectNoError(err, "updating storage version")
 
 		// wait for sv to be GC'ed
 		framework.Logf("Waiting for storage version %v to be garbage collected", createdSV.Name)
 		err = wait.PollImmediate(100*time.Millisecond, wait.ForeverTestTimeout, func() (bool, error) {
 			_, err := client.InternalV1alpha1().StorageVersions().Get(
-				ctx, createdSV.Name, metav1.GetOptions{})
+				context.TODO(), createdSV.Name, metav1.GetOptions{})
 			if apierrors.IsNotFound(err) {
 				return true, nil
 			}

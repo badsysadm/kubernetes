@@ -49,7 +49,6 @@ import (
 	genericapirequest "k8s.io/apiserver/pkg/endpoints/request"
 	"k8s.io/apiserver/pkg/server/egressselector"
 	utilflowcontrol "k8s.io/apiserver/pkg/util/flowcontrol"
-	apiserverproxyutil "k8s.io/apiserver/pkg/util/proxy"
 	"k8s.io/component-base/metrics"
 	"k8s.io/component-base/metrics/legacyregistry"
 	apiregistration "k8s.io/kube-aggregator/pkg/apis/apiregistration/v1"
@@ -748,7 +747,7 @@ func TestGetContextForNewRequest(t *testing.T) {
 		location.Path = req.URL.Path
 
 		nestedReq := req.WithContext(genericapirequest.WithRequestInfo(req.Context(), &genericapirequest.RequestInfo{Path: req.URL.Path}))
-		newReq, cancelFn := apiserverproxyutil.NewRequestForProxy(location, nestedReq)
+		newReq, cancelFn := newRequestForProxy(location, nestedReq)
 		defer cancelFn()
 
 		theproxy := proxy.NewUpgradeAwareHandler(location, server.Client().Transport, true, false, &responder{w: w})
@@ -803,7 +802,7 @@ func TestNewRequestForProxyWithAuditID(t *testing.T) {
 				req = req.WithContext(ctx)
 			}
 
-			newReq, _ := apiserverproxyutil.NewRequestForProxy(req.URL, req)
+			newReq, _ := newRequestForProxy(req.URL, req)
 			if newReq == nil {
 				t.Fatal("expected a non nil Request object")
 			}

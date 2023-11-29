@@ -20,13 +20,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	goruntime "runtime"
 	"strings"
 	"sync"
 	"testing"
 	"time"
-
-	"k8s.io/klog/v2"
 
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/utils/exec"
@@ -96,8 +93,6 @@ const (
 	volumeNotMounted     = "volumeNotMounted"
 	volumeMountUncertain = "volumeMountUncertain"
 	volumeMounted        = "volumeMounted"
-
-	FailNewMounter = "fail-new-mounter"
 )
 
 // CommandScript is used to pre-configure a command that will be executed and
@@ -188,7 +183,6 @@ type FakeVolumePlugin struct {
 	SupportsRemount        bool
 	SupportsSELinux        bool
 	DisableNodeExpansion   bool
-	CanSupportFn           func(*volume.Spec) bool
 
 	// default to false which means it is attachable by default
 	NonAttachable bool
@@ -275,10 +269,7 @@ func (plugin *FakeVolumePlugin) GetVolumeName(spec *volume.Spec) (string, error)
 }
 
 func (plugin *FakeVolumePlugin) CanSupport(spec *volume.Spec) bool {
-	if plugin.CanSupportFn != nil {
-		return plugin.CanSupportFn(spec)
-	}
-
+	// TODO: maybe pattern-match on spec.Name() to decide?
 	return true
 }
 
@@ -301,9 +292,6 @@ func (plugin *FakeVolumePlugin) SupportsSELinuxContextMount(spec *volume.Spec) (
 func (plugin *FakeVolumePlugin) NewMounter(spec *volume.Spec, pod *v1.Pod, opts volume.VolumeOptions) (volume.Mounter, error) {
 	plugin.Lock()
 	defer plugin.Unlock()
-	if spec.Name() == FailNewMounter {
-		return nil, fmt.Errorf("AlwaysFailNewMounter")
-	}
 	fakeVolume := plugin.getFakeVolume(&plugin.Mounters)
 	fakeVolume.Lock()
 	defer fakeVolume.Unlock()
@@ -448,11 +436,11 @@ func (plugin *FakeVolumePlugin) Recycle(pvName string, spec *volume.Spec, eventR
 	return nil
 }
 
-func (plugin *FakeVolumePlugin) NewDeleter(logger klog.Logger, spec *volume.Spec) (volume.Deleter, error) {
+func (plugin *FakeVolumePlugin) NewDeleter(spec *volume.Spec) (volume.Deleter, error) {
 	return &FakeDeleter{"/attributesTransferredFromSpec", volume.MetricsNil{}}, nil
 }
 
-func (plugin *FakeVolumePlugin) NewProvisioner(logger klog.Logger, options volume.VolumeOptions) (volume.Provisioner, error) {
+func (plugin *FakeVolumePlugin) NewProvisioner(options volume.VolumeOptions) (volume.Provisioner, error) {
 	plugin.Lock()
 	defer plugin.Unlock()
 	plugin.LastProvisionerOptions = options
@@ -1277,11 +1265,6 @@ func (fv *FakeVolumePathHandler) GetLoopDevice(path string) (string, error) {
 // FindEmptyDirectoryUsageOnTmpfs finds the expected usage of an empty directory existing on
 // a tmpfs filesystem on this system.
 func FindEmptyDirectoryUsageOnTmpfs() (*resource.Quantity, error) {
-	// The command below does not exist on Windows. Additionally, empty folders have size 0 on Windows.
-	if goruntime.GOOS == "windows" {
-		used, err := resource.ParseQuantity("0")
-		return &used, err
-	}
 	tmpDir, err := utiltesting.MkTmpdir("metrics_du_test")
 	if err != nil {
 		return nil, err
@@ -1528,6 +1511,24 @@ func VerifyZeroDetachCallCount(fakeVolumePlugin *FakeVolumePlugin) error {
 	return nil
 }
 
+// VerifySetUpDeviceCallCount ensures that at least one of the Mappers for this
+// plugin has the expectedSetUpDeviceCallCount number of calls. Otherwise it
+// returns an error.
+func VerifySetUpDeviceCallCount(
+	expectedSetUpDeviceCallCount int,
+	fakeVolumePlugin *FakeVolumePlugin) error {
+	for _, mapper := range fakeVolumePlugin.GetBlockVolumeMapper() {
+		actualCallCount := mapper.GetSetUpDeviceCallCount()
+		if actualCallCount >= expectedSetUpDeviceCallCount {
+			return nil
+		}
+	}
+
+	return fmt.Errorf(
+		"No Mapper have expected SetUpDeviceCallCount. Expected: <%v>.",
+		expectedSetUpDeviceCallCount)
+}
+
 // VerifyTearDownDeviceCallCount ensures that at least one of the Unmappers for this
 // plugin has the expectedTearDownDeviceCallCount number of calls. Otherwise it
 // returns an error.
@@ -1707,7 +1708,7 @@ func CreateTestPVC(capacity string, accessModes []v1.PersistentVolumeAccessMode)
 		},
 		Spec: v1.PersistentVolumeClaimSpec{
 			AccessModes: accessModes,
-			Resources: v1.VolumeResourceRequirements{
+			Resources: v1.ResourceRequirements{
 				Requests: v1.ResourceList{
 					v1.ResourceName(v1.ResourceStorage): resource.MustParse(capacity),
 				},

@@ -36,11 +36,9 @@ import (
 
 	"gopkg.in/square/go-jose.v2"
 
-	"k8s.io/apiserver/pkg/apis/apiserver"
 	"k8s.io/apiserver/pkg/authentication/user"
 	"k8s.io/apiserver/pkg/server/dynamiccertificates"
 	"k8s.io/klog/v2"
-	"k8s.io/utils/pointer"
 )
 
 // utilities for loading JOSE keys.
@@ -257,7 +255,7 @@ func (c *claimsTest) run(t *testing.T) {
 	}
 	c.claims = replace(c.claims, &v)
 	c.openIDConfig = replace(c.openIDConfig, &v)
-	c.options.JWTAuthenticator.Issuer.URL = replace(c.options.JWTAuthenticator.Issuer.URL, &v)
+	c.options.IssuerURL = replace(c.options.IssuerURL, &v)
 	for claim, response := range c.claimToResponseMap {
 		c.claimToResponseMap[claim] = replace(response, &v)
 	}
@@ -298,7 +296,7 @@ func (c *claimsTest) run(t *testing.T) {
 		t.Fatalf("serialize token: %v", err)
 	}
 
-	got, ok, err := a.AuthenticateToken(testContext(t), token)
+	got, ok, err := a.AuthenticateToken(context.Background(), token)
 
 	expectErr := len(c.wantErr) > 0
 
@@ -338,19 +336,10 @@ func TestToken(t *testing.T) {
 		{
 			name: "token",
 			options: Options{
-				JWTAuthenticator: apiserver.JWTAuthenticator{
-					Issuer: apiserver.Issuer{
-						URL:       "https://auth.example.com",
-						Audiences: []string{"my-client"},
-					},
-					ClaimMappings: apiserver.ClaimMappings{
-						Username: apiserver.PrefixedClaimOrExpression{
-							Claim:  "username",
-							Prefix: pointer.String(""),
-						},
-					},
-				},
-				now: func() time.Time { return now },
+				IssuerURL:     "https://auth.example.com",
+				ClientID:      "my-client",
+				UsernameClaim: "username",
+				now:           func() time.Time { return now },
 			},
 			signingKey: loadRSAPrivKey(t, "testdata/rsa_1.pem", jose.RS256),
 			pubKeys: []*jose.JSONWebKey{
@@ -369,19 +358,10 @@ func TestToken(t *testing.T) {
 		{
 			name: "no-username",
 			options: Options{
-				JWTAuthenticator: apiserver.JWTAuthenticator{
-					Issuer: apiserver.Issuer{
-						URL:       "https://auth.example.com",
-						Audiences: []string{"my-client"},
-					},
-					ClaimMappings: apiserver.ClaimMappings{
-						Username: apiserver.PrefixedClaimOrExpression{
-							Claim:  "username",
-							Prefix: pointer.String("prefix:"),
-						},
-					},
-				},
-				now: func() time.Time { return now },
+				IssuerURL:     "https://auth.example.com",
+				ClientID:      "my-client",
+				UsernameClaim: "username",
+				now:           func() time.Time { return now },
 			},
 			signingKey: loadRSAPrivKey(t, "testdata/rsa_1.pem", jose.RS256),
 			pubKeys: []*jose.JSONWebKey{
@@ -397,19 +377,10 @@ func TestToken(t *testing.T) {
 		{
 			name: "email",
 			options: Options{
-				JWTAuthenticator: apiserver.JWTAuthenticator{
-					Issuer: apiserver.Issuer{
-						URL:       "https://auth.example.com",
-						Audiences: []string{"my-client"},
-					},
-					ClaimMappings: apiserver.ClaimMappings{
-						Username: apiserver.PrefixedClaimOrExpression{
-							Claim:  "email",
-							Prefix: pointer.String(""),
-						},
-					},
-				},
-				now: func() time.Time { return now },
+				IssuerURL:     "https://auth.example.com",
+				ClientID:      "my-client",
+				UsernameClaim: "email",
+				now:           func() time.Time { return now },
 			},
 			signingKey: loadRSAPrivKey(t, "testdata/rsa_1.pem", jose.RS256),
 			pubKeys: []*jose.JSONWebKey{
@@ -429,19 +400,10 @@ func TestToken(t *testing.T) {
 		{
 			name: "email-not-verified",
 			options: Options{
-				JWTAuthenticator: apiserver.JWTAuthenticator{
-					Issuer: apiserver.Issuer{
-						URL:       "https://auth.example.com",
-						Audiences: []string{"my-client"},
-					},
-					ClaimMappings: apiserver.ClaimMappings{
-						Username: apiserver.PrefixedClaimOrExpression{
-							Claim:  "email",
-							Prefix: pointer.String(""),
-						},
-					},
-				},
-				now: func() time.Time { return now },
+				IssuerURL:     "https://auth.example.com",
+				ClientID:      "my-client",
+				UsernameClaim: "email",
+				now:           func() time.Time { return now },
 			},
 			signingKey: loadRSAPrivKey(t, "testdata/rsa_1.pem", jose.RS256),
 			pubKeys: []*jose.JSONWebKey{
@@ -460,19 +422,10 @@ func TestToken(t *testing.T) {
 			// If "email_verified" isn't present, assume true
 			name: "no-email-verified-claim",
 			options: Options{
-				JWTAuthenticator: apiserver.JWTAuthenticator{
-					Issuer: apiserver.Issuer{
-						URL:       "https://auth.example.com",
-						Audiences: []string{"my-client"},
-					},
-					ClaimMappings: apiserver.ClaimMappings{
-						Username: apiserver.PrefixedClaimOrExpression{
-							Claim:  "email",
-							Prefix: pointer.String(""),
-						},
-					},
-				},
-				now: func() time.Time { return now },
+				IssuerURL:     "https://auth.example.com",
+				ClientID:      "my-client",
+				UsernameClaim: "email",
+				now:           func() time.Time { return now },
 			},
 			signingKey: loadRSAPrivKey(t, "testdata/rsa_1.pem", jose.RS256),
 			pubKeys: []*jose.JSONWebKey{
@@ -491,19 +444,10 @@ func TestToken(t *testing.T) {
 		{
 			name: "invalid-email-verified-claim",
 			options: Options{
-				JWTAuthenticator: apiserver.JWTAuthenticator{
-					Issuer: apiserver.Issuer{
-						URL:       "https://auth.example.com",
-						Audiences: []string{"my-client"},
-					},
-					ClaimMappings: apiserver.ClaimMappings{
-						Username: apiserver.PrefixedClaimOrExpression{
-							Claim:  "email",
-							Prefix: pointer.String(""),
-						},
-					},
-				},
-				now: func() time.Time { return now },
+				IssuerURL:     "https://auth.example.com",
+				ClientID:      "my-client",
+				UsernameClaim: "email",
+				now:           func() time.Time { return now },
 			},
 			signingKey: loadRSAPrivKey(t, "testdata/rsa_1.pem", jose.RS256),
 			pubKeys: []*jose.JSONWebKey{
@@ -522,23 +466,11 @@ func TestToken(t *testing.T) {
 		{
 			name: "groups",
 			options: Options{
-				JWTAuthenticator: apiserver.JWTAuthenticator{
-					Issuer: apiserver.Issuer{
-						URL:       "https://auth.example.com",
-						Audiences: []string{"my-client"},
-					},
-					ClaimMappings: apiserver.ClaimMappings{
-						Username: apiserver.PrefixedClaimOrExpression{
-							Claim:  "username",
-							Prefix: pointer.String(""),
-						},
-						Groups: apiserver.PrefixedClaimOrExpression{
-							Claim:  "groups",
-							Prefix: pointer.String(""),
-						},
-					},
-				},
-				now: func() time.Time { return now },
+				IssuerURL:     "https://auth.example.com",
+				ClientID:      "my-client",
+				UsernameClaim: "username",
+				GroupsClaim:   "groups",
+				now:           func() time.Time { return now },
 			},
 			signingKey: loadRSAPrivKey(t, "testdata/rsa_1.pem", jose.RS256),
 			pubKeys: []*jose.JSONWebKey{
@@ -559,23 +491,11 @@ func TestToken(t *testing.T) {
 		{
 			name: "groups-distributed",
 			options: Options{
-				JWTAuthenticator: apiserver.JWTAuthenticator{
-					Issuer: apiserver.Issuer{
-						URL:       "{{.URL}}",
-						Audiences: []string{"my-client"},
-					},
-					ClaimMappings: apiserver.ClaimMappings{
-						Username: apiserver.PrefixedClaimOrExpression{
-							Claim:  "username",
-							Prefix: pointer.String(""),
-						},
-						Groups: apiserver.PrefixedClaimOrExpression{
-							Claim:  "groups",
-							Prefix: pointer.String(""),
-						},
-					},
-				},
-				now: func() time.Time { return now },
+				IssuerURL:     "{{.URL}}",
+				ClientID:      "my-client",
+				UsernameClaim: "username",
+				GroupsClaim:   "groups",
+				now:           func() time.Time { return now },
 			},
 			signingKey: loadRSAPrivKey(t, "testdata/rsa_1.pem", jose.RS256),
 			pubKeys: []*jose.JSONWebKey{
@@ -616,24 +536,12 @@ func TestToken(t *testing.T) {
 		{
 			name: "groups-distributed invalid client",
 			options: Options{
-				JWTAuthenticator: apiserver.JWTAuthenticator{
-					Issuer: apiserver.Issuer{
-						URL:       "{{.URL}}",
-						Audiences: []string{"my-client"},
-					},
-					ClaimMappings: apiserver.ClaimMappings{
-						Username: apiserver.PrefixedClaimOrExpression{
-							Claim:  "username",
-							Prefix: pointer.String(""),
-						},
-						Groups: apiserver.PrefixedClaimOrExpression{
-							Claim:  "groups",
-							Prefix: pointer.String(""),
-						},
-					},
-				},
-				Client: &http.Client{Transport: errTransport("some unexpected oidc error")}, // return an error that we can assert against
-				now:    func() time.Time { return now },
+				IssuerURL:     "{{.URL}}",
+				ClientID:      "my-client",
+				UsernameClaim: "username",
+				GroupsClaim:   "groups",
+				Client:        &http.Client{Transport: errTransport("some unexpected oidc error")}, // return an error that we can assert against
+				now:           func() time.Time { return now },
 			},
 			signingKey: loadRSAPrivKey(t, "testdata/rsa_1.pem", jose.RS256),
 			pubKeys: []*jose.JSONWebKey{
@@ -674,23 +582,11 @@ func TestToken(t *testing.T) {
 		{
 			name: "groups-distributed-malformed-claim-names",
 			options: Options{
-				JWTAuthenticator: apiserver.JWTAuthenticator{
-					Issuer: apiserver.Issuer{
-						URL:       "{{.URL}}",
-						Audiences: []string{"my-client"},
-					},
-					ClaimMappings: apiserver.ClaimMappings{
-						Username: apiserver.PrefixedClaimOrExpression{
-							Claim:  "username",
-							Prefix: pointer.String(""),
-						},
-						Groups: apiserver.PrefixedClaimOrExpression{
-							Claim:  "groups",
-							Prefix: pointer.String(""),
-						},
-					},
-				},
-				now: func() time.Time { return now },
+				IssuerURL:     "{{.URL}}",
+				ClientID:      "my-client",
+				UsernameClaim: "username",
+				GroupsClaim:   "groups",
+				now:           func() time.Time { return now },
 			},
 			signingKey: loadRSAPrivKey(t, "testdata/rsa_1.pem", jose.RS256),
 			pubKeys: []*jose.JSONWebKey{
@@ -728,23 +624,11 @@ func TestToken(t *testing.T) {
 		{
 			name: "groups-distributed-malformed-names-and-sources",
 			options: Options{
-				JWTAuthenticator: apiserver.JWTAuthenticator{
-					Issuer: apiserver.Issuer{
-						URL:       "{{.URL}}",
-						Audiences: []string{"my-client"},
-					},
-					ClaimMappings: apiserver.ClaimMappings{
-						Username: apiserver.PrefixedClaimOrExpression{
-							Claim:  "username",
-							Prefix: pointer.String(""),
-						},
-						Groups: apiserver.PrefixedClaimOrExpression{
-							Claim:  "groups",
-							Prefix: pointer.String(""),
-						},
-					},
-				},
-				now: func() time.Time { return now },
+				IssuerURL:     "{{.URL}}",
+				ClientID:      "my-client",
+				UsernameClaim: "username",
+				GroupsClaim:   "groups",
+				now:           func() time.Time { return now },
 			},
 			signingKey: loadRSAPrivKey(t, "testdata/rsa_1.pem", jose.RS256),
 			pubKeys: []*jose.JSONWebKey{
@@ -776,23 +660,11 @@ func TestToken(t *testing.T) {
 		{
 			name: "groups-distributed-malformed-distributed-claim",
 			options: Options{
-				JWTAuthenticator: apiserver.JWTAuthenticator{
-					Issuer: apiserver.Issuer{
-						URL:       "{{.URL}}",
-						Audiences: []string{"my-client"},
-					},
-					ClaimMappings: apiserver.ClaimMappings{
-						Username: apiserver.PrefixedClaimOrExpression{
-							Claim:  "username",
-							Prefix: pointer.String(""),
-						},
-						Groups: apiserver.PrefixedClaimOrExpression{
-							Claim:  "groups",
-							Prefix: pointer.String(""),
-						},
-					},
-				},
-				now: func() time.Time { return now },
+				IssuerURL:     "{{.URL}}",
+				ClientID:      "my-client",
+				UsernameClaim: "username",
+				GroupsClaim:   "groups",
+				now:           func() time.Time { return now },
 			},
 			signingKey: loadRSAPrivKey(t, "testdata/rsa_1.pem", jose.RS256),
 			pubKeys: []*jose.JSONWebKey{
@@ -830,23 +702,11 @@ func TestToken(t *testing.T) {
 		{
 			name: "groups-distributed-unusual-name",
 			options: Options{
-				JWTAuthenticator: apiserver.JWTAuthenticator{
-					Issuer: apiserver.Issuer{
-						URL:       "{{.URL}}",
-						Audiences: []string{"my-client"},
-					},
-					ClaimMappings: apiserver.ClaimMappings{
-						Username: apiserver.PrefixedClaimOrExpression{
-							Claim:  "username",
-							Prefix: pointer.String(""),
-						},
-						Groups: apiserver.PrefixedClaimOrExpression{
-							Claim:  "rabbits",
-							Prefix: pointer.String(""),
-						},
-					},
-				},
-				now: func() time.Time { return now },
+				IssuerURL:     "{{.URL}}",
+				ClientID:      "my-client",
+				UsernameClaim: "username",
+				GroupsClaim:   "rabbits",
+				now:           func() time.Time { return now },
 			},
 			signingKey: loadRSAPrivKey(t, "testdata/rsa_1.pem", jose.RS256),
 			pubKeys: []*jose.JSONWebKey{
@@ -887,23 +747,11 @@ func TestToken(t *testing.T) {
 		{
 			name: "groups-distributed-wrong-audience",
 			options: Options{
-				JWTAuthenticator: apiserver.JWTAuthenticator{
-					Issuer: apiserver.Issuer{
-						URL:       "{{.URL}}",
-						Audiences: []string{"my-client"},
-					},
-					ClaimMappings: apiserver.ClaimMappings{
-						Username: apiserver.PrefixedClaimOrExpression{
-							Claim:  "username",
-							Prefix: pointer.String(""),
-						},
-						Groups: apiserver.PrefixedClaimOrExpression{
-							Claim:  "groups",
-							Prefix: pointer.String(""),
-						},
-					},
-				},
-				now: func() time.Time { return now },
+				IssuerURL:     "{{.URL}}",
+				ClientID:      "my-client",
+				UsernameClaim: "username",
+				GroupsClaim:   "groups",
+				now:           func() time.Time { return now },
 			},
 			signingKey: loadRSAPrivKey(t, "testdata/rsa_1.pem", jose.RS256),
 			pubKeys: []*jose.JSONWebKey{
@@ -942,23 +790,11 @@ func TestToken(t *testing.T) {
 		{
 			name: "groups-distributed-expired-token",
 			options: Options{
-				JWTAuthenticator: apiserver.JWTAuthenticator{
-					Issuer: apiserver.Issuer{
-						URL:       "{{.URL}}",
-						Audiences: []string{"my-client"},
-					},
-					ClaimMappings: apiserver.ClaimMappings{
-						Username: apiserver.PrefixedClaimOrExpression{
-							Claim:  "username",
-							Prefix: pointer.String(""),
-						},
-						Groups: apiserver.PrefixedClaimOrExpression{
-							Claim:  "groups",
-							Prefix: pointer.String(""),
-						},
-					},
-				},
-				now: func() time.Time { return now },
+				IssuerURL:     "{{.URL}}",
+				ClientID:      "my-client",
+				UsernameClaim: "username",
+				GroupsClaim:   "groups",
+				now:           func() time.Time { return now },
 			},
 			signingKey: loadRSAPrivKey(t, "testdata/rsa_1.pem", jose.RS256),
 			pubKeys: []*jose.JSONWebKey{
@@ -999,23 +835,11 @@ func TestToken(t *testing.T) {
 			// normal claim wins over a distributed claim by the same name.
 			name: "groups-distributed-normal-claim-wins",
 			options: Options{
-				JWTAuthenticator: apiserver.JWTAuthenticator{
-					Issuer: apiserver.Issuer{
-						URL:       "{{.URL}}",
-						Audiences: []string{"my-client"},
-					},
-					ClaimMappings: apiserver.ClaimMappings{
-						Username: apiserver.PrefixedClaimOrExpression{
-							Claim:  "username",
-							Prefix: pointer.String(""),
-						},
-						Groups: apiserver.PrefixedClaimOrExpression{
-							Claim:  "groups",
-							Prefix: pointer.String(""),
-						},
-					},
-				},
-				now: func() time.Time { return now },
+				IssuerURL:     "{{.URL}}",
+				ClientID:      "my-client",
+				UsernameClaim: "username",
+				GroupsClaim:   "groups",
+				now:           func() time.Time { return now },
 			},
 			signingKey: loadRSAPrivKey(t, "testdata/rsa_1.pem", jose.RS256),
 			pubKeys: []*jose.JSONWebKey{
@@ -1059,23 +883,11 @@ func TestToken(t *testing.T) {
 			// Groups should be able to be a single string, not just a slice.
 			name: "group-string-claim",
 			options: Options{
-				JWTAuthenticator: apiserver.JWTAuthenticator{
-					Issuer: apiserver.Issuer{
-						URL:       "https://auth.example.com",
-						Audiences: []string{"my-client"},
-					},
-					ClaimMappings: apiserver.ClaimMappings{
-						Username: apiserver.PrefixedClaimOrExpression{
-							Claim:  "username",
-							Prefix: pointer.String(""),
-						},
-						Groups: apiserver.PrefixedClaimOrExpression{
-							Claim:  "groups",
-							Prefix: pointer.String(""),
-						},
-					},
-				},
-				now: func() time.Time { return now },
+				IssuerURL:     "https://auth.example.com",
+				ClientID:      "my-client",
+				UsernameClaim: "username",
+				GroupsClaim:   "groups",
+				now:           func() time.Time { return now },
 			},
 			signingKey: loadRSAPrivKey(t, "testdata/rsa_1.pem", jose.RS256),
 			pubKeys: []*jose.JSONWebKey{
@@ -1097,23 +909,11 @@ func TestToken(t *testing.T) {
 			// Groups should be able to be a single string, not just a slice.
 			name: "group-string-claim-distributed",
 			options: Options{
-				JWTAuthenticator: apiserver.JWTAuthenticator{
-					Issuer: apiserver.Issuer{
-						URL:       "{{.URL}}",
-						Audiences: []string{"my-client"},
-					},
-					ClaimMappings: apiserver.ClaimMappings{
-						Username: apiserver.PrefixedClaimOrExpression{
-							Claim:  "username",
-							Prefix: pointer.String(""),
-						},
-						Groups: apiserver.PrefixedClaimOrExpression{
-							Claim:  "groups",
-							Prefix: pointer.String(""),
-						},
-					},
-				},
-				now: func() time.Time { return now },
+				IssuerURL:     "{{.URL}}",
+				ClientID:      "my-client",
+				UsernameClaim: "username",
+				GroupsClaim:   "groups",
+				now:           func() time.Time { return now },
 			},
 			signingKey: loadRSAPrivKey(t, "testdata/rsa_1.pem", jose.RS256),
 			pubKeys: []*jose.JSONWebKey{
@@ -1154,23 +954,11 @@ func TestToken(t *testing.T) {
 		{
 			name: "group-string-claim-aggregated-not-supported",
 			options: Options{
-				JWTAuthenticator: apiserver.JWTAuthenticator{
-					Issuer: apiserver.Issuer{
-						URL:       "https://auth.example.com",
-						Audiences: []string{"my-client"},
-					},
-					ClaimMappings: apiserver.ClaimMappings{
-						Username: apiserver.PrefixedClaimOrExpression{
-							Claim:  "username",
-							Prefix: pointer.String(""),
-						},
-						Groups: apiserver.PrefixedClaimOrExpression{
-							Claim:  "groups",
-							Prefix: pointer.String(""),
-						},
-					},
-				},
-				now: func() time.Time { return now },
+				IssuerURL:     "https://auth.example.com",
+				ClientID:      "my-client",
+				UsernameClaim: "username",
+				GroupsClaim:   "groups",
+				now:           func() time.Time { return now },
 			},
 			signingKey: loadRSAPrivKey(t, "testdata/rsa_1.pem", jose.RS256),
 			pubKeys: []*jose.JSONWebKey{
@@ -1198,23 +986,11 @@ func TestToken(t *testing.T) {
 			// if the groups claim isn't provided, this shouldn't error out
 			name: "no-groups-claim",
 			options: Options{
-				JWTAuthenticator: apiserver.JWTAuthenticator{
-					Issuer: apiserver.Issuer{
-						URL:       "https://auth.example.com",
-						Audiences: []string{"my-client"},
-					},
-					ClaimMappings: apiserver.ClaimMappings{
-						Username: apiserver.PrefixedClaimOrExpression{
-							Claim:  "username",
-							Prefix: pointer.String(""),
-						},
-						Groups: apiserver.PrefixedClaimOrExpression{
-							Claim:  "groups",
-							Prefix: pointer.String(""),
-						},
-					},
-				},
-				now: func() time.Time { return now },
+				IssuerURL:     "https://auth.example.com",
+				ClientID:      "my-client",
+				UsernameClaim: "username",
+				GroupsClaim:   "groups",
+				now:           func() time.Time { return now },
 			},
 			signingKey: loadRSAPrivKey(t, "testdata/rsa_1.pem", jose.RS256),
 			pubKeys: []*jose.JSONWebKey{
@@ -1233,23 +1009,11 @@ func TestToken(t *testing.T) {
 		{
 			name: "invalid-groups-claim",
 			options: Options{
-				JWTAuthenticator: apiserver.JWTAuthenticator{
-					Issuer: apiserver.Issuer{
-						URL:       "https://auth.example.com",
-						Audiences: []string{"my-client"},
-					},
-					ClaimMappings: apiserver.ClaimMappings{
-						Username: apiserver.PrefixedClaimOrExpression{
-							Claim:  "username",
-							Prefix: pointer.String(""),
-						},
-						Groups: apiserver.PrefixedClaimOrExpression{
-							Claim:  "groups",
-							Prefix: pointer.String(""),
-						},
-					},
-				},
-				now: func() time.Time { return now },
+				IssuerURL:     "https://auth.example.com",
+				ClientID:      "my-client",
+				UsernameClaim: "username",
+				GroupsClaim:   "groups",
+				now:           func() time.Time { return now },
 			},
 			signingKey: loadRSAPrivKey(t, "testdata/rsa_1.pem", jose.RS256),
 			pubKeys: []*jose.JSONWebKey{
@@ -1267,31 +1031,13 @@ func TestToken(t *testing.T) {
 		{
 			name: "required-claim",
 			options: Options{
-				JWTAuthenticator: apiserver.JWTAuthenticator{
-					Issuer: apiserver.Issuer{
-						URL:       "https://auth.example.com",
-						Audiences: []string{"my-client"},
-					},
-					ClaimMappings: apiserver.ClaimMappings{
-						Username: apiserver.PrefixedClaimOrExpression{
-							Claim:  "username",
-							Prefix: pointer.String(""),
-						},
-						Groups: apiserver.PrefixedClaimOrExpression{
-							Claim:  "groups",
-							Prefix: pointer.String(""),
-						},
-					},
-					ClaimValidationRules: []apiserver.ClaimValidationRule{
-						{
-							Claim:         "hd",
-							RequiredValue: "example.com",
-						},
-						{
-							Claim:         "sub",
-							RequiredValue: "test",
-						},
-					},
+				IssuerURL:     "https://auth.example.com",
+				ClientID:      "my-client",
+				UsernameClaim: "username",
+				GroupsClaim:   "groups",
+				RequiredClaims: map[string]string{
+					"hd":  "example.com",
+					"sub": "test",
 				},
 				now: func() time.Time { return now },
 			},
@@ -1314,27 +1060,12 @@ func TestToken(t *testing.T) {
 		{
 			name: "no-required-claim",
 			options: Options{
-				JWTAuthenticator: apiserver.JWTAuthenticator{
-					Issuer: apiserver.Issuer{
-						URL:       "https://auth.example.com",
-						Audiences: []string{"my-client"},
-					},
-					ClaimMappings: apiserver.ClaimMappings{
-						Username: apiserver.PrefixedClaimOrExpression{
-							Claim:  "username",
-							Prefix: pointer.String(""),
-						},
-						Groups: apiserver.PrefixedClaimOrExpression{
-							Claim:  "groups",
-							Prefix: pointer.String(""),
-						},
-					},
-					ClaimValidationRules: []apiserver.ClaimValidationRule{
-						{
-							Claim:         "hd",
-							RequiredValue: "example.com",
-						},
-					},
+				IssuerURL:     "https://auth.example.com",
+				ClientID:      "my-client",
+				UsernameClaim: "username",
+				GroupsClaim:   "groups",
+				RequiredClaims: map[string]string{
+					"hd": "example.com",
 				},
 				now: func() time.Time { return now },
 			},
@@ -1353,27 +1084,12 @@ func TestToken(t *testing.T) {
 		{
 			name: "invalid-required-claim",
 			options: Options{
-				JWTAuthenticator: apiserver.JWTAuthenticator{
-					Issuer: apiserver.Issuer{
-						URL:       "https://auth.example.com",
-						Audiences: []string{"my-client"},
-					},
-					ClaimMappings: apiserver.ClaimMappings{
-						Username: apiserver.PrefixedClaimOrExpression{
-							Claim:  "username",
-							Prefix: pointer.String(""),
-						},
-						Groups: apiserver.PrefixedClaimOrExpression{
-							Claim:  "groups",
-							Prefix: pointer.String(""),
-						},
-					},
-					ClaimValidationRules: []apiserver.ClaimValidationRule{
-						{
-							Claim:         "hd",
-							RequiredValue: "example.com",
-						},
-					},
+				IssuerURL:     "https://auth.example.com",
+				ClientID:      "my-client",
+				UsernameClaim: "username",
+				GroupsClaim:   "groups",
+				RequiredClaims: map[string]string{
+					"hd": "example.com",
 				},
 				now: func() time.Time { return now },
 			},
@@ -1393,19 +1109,10 @@ func TestToken(t *testing.T) {
 		{
 			name: "invalid-signature",
 			options: Options{
-				JWTAuthenticator: apiserver.JWTAuthenticator{
-					Issuer: apiserver.Issuer{
-						URL:       "https://auth.example.com",
-						Audiences: []string{"my-client"},
-					},
-					ClaimMappings: apiserver.ClaimMappings{
-						Username: apiserver.PrefixedClaimOrExpression{
-							Claim:  "username",
-							Prefix: pointer.String("prefix:"),
-						},
-					},
-				},
-				now: func() time.Time { return now },
+				IssuerURL:     "https://auth.example.com",
+				ClientID:      "my-client",
+				UsernameClaim: "username",
+				now:           func() time.Time { return now },
 			},
 			signingKey: loadRSAPrivKey(t, "testdata/rsa_1.pem", jose.RS256),
 			pubKeys: []*jose.JSONWebKey{
@@ -1422,19 +1129,10 @@ func TestToken(t *testing.T) {
 		{
 			name: "expired",
 			options: Options{
-				JWTAuthenticator: apiserver.JWTAuthenticator{
-					Issuer: apiserver.Issuer{
-						URL:       "https://auth.example.com",
-						Audiences: []string{"my-client"},
-					},
-					ClaimMappings: apiserver.ClaimMappings{
-						Username: apiserver.PrefixedClaimOrExpression{
-							Claim:  "username",
-							Prefix: pointer.String("prefix:"),
-						},
-					},
-				},
-				now: func() time.Time { return now },
+				IssuerURL:     "https://auth.example.com",
+				ClientID:      "my-client",
+				UsernameClaim: "username",
+				now:           func() time.Time { return now },
 			},
 			signingKey: loadRSAPrivKey(t, "testdata/rsa_1.pem", jose.RS256),
 			pubKeys: []*jose.JSONWebKey{
@@ -1451,19 +1149,10 @@ func TestToken(t *testing.T) {
 		{
 			name: "invalid-aud",
 			options: Options{
-				JWTAuthenticator: apiserver.JWTAuthenticator{
-					Issuer: apiserver.Issuer{
-						URL:       "https://auth.example.com",
-						Audiences: []string{"my-client"},
-					},
-					ClaimMappings: apiserver.ClaimMappings{
-						Username: apiserver.PrefixedClaimOrExpression{
-							Claim:  "username",
-							Prefix: pointer.String("prefix:"),
-						},
-					},
-				},
-				now: func() time.Time { return now },
+				IssuerURL:     "https://auth.example.com",
+				ClientID:      "my-client",
+				UsernameClaim: "username",
+				now:           func() time.Time { return now },
 			},
 			signingKey: loadRSAPrivKey(t, "testdata/rsa_1.pem", jose.RS256),
 			pubKeys: []*jose.JSONWebKey{
@@ -1482,19 +1171,10 @@ func TestToken(t *testing.T) {
 			// https://openid.net/specs/openid-connect-core-1_0.html#IDToken
 			name: "multiple-audiences",
 			options: Options{
-				JWTAuthenticator: apiserver.JWTAuthenticator{
-					Issuer: apiserver.Issuer{
-						URL:       "https://auth.example.com",
-						Audiences: []string{"my-client"},
-					},
-					ClaimMappings: apiserver.ClaimMappings{
-						Username: apiserver.PrefixedClaimOrExpression{
-							Claim:  "username",
-							Prefix: pointer.String(""),
-						},
-					},
-				},
-				now: func() time.Time { return now },
+				IssuerURL:     "https://auth.example.com",
+				ClientID:      "my-client",
+				UsernameClaim: "username",
+				now:           func() time.Time { return now },
 			},
 			signingKey: loadRSAPrivKey(t, "testdata/rsa_1.pem", jose.RS256),
 			pubKeys: []*jose.JSONWebKey{
@@ -1514,19 +1194,10 @@ func TestToken(t *testing.T) {
 		{
 			name: "invalid-issuer",
 			options: Options{
-				JWTAuthenticator: apiserver.JWTAuthenticator{
-					Issuer: apiserver.Issuer{
-						URL:       "https://auth.example.com",
-						Audiences: []string{"my-client"},
-					},
-					ClaimMappings: apiserver.ClaimMappings{
-						Username: apiserver.PrefixedClaimOrExpression{
-							Claim:  "username",
-							Prefix: pointer.String("prefix:"),
-						},
-					},
-				},
-				now: func() time.Time { return now },
+				IssuerURL:     "https://auth.example.com",
+				ClientID:      "my-client",
+				UsernameClaim: "username",
+				now:           func() time.Time { return now },
 			},
 			signingKey: loadRSAPrivKey(t, "testdata/rsa_1.pem", jose.RS256),
 			pubKeys: []*jose.JSONWebKey{
@@ -1543,19 +1214,11 @@ func TestToken(t *testing.T) {
 		{
 			name: "username-prefix",
 			options: Options{
-				JWTAuthenticator: apiserver.JWTAuthenticator{
-					Issuer: apiserver.Issuer{
-						URL:       "https://auth.example.com",
-						Audiences: []string{"my-client"},
-					},
-					ClaimMappings: apiserver.ClaimMappings{
-						Username: apiserver.PrefixedClaimOrExpression{
-							Claim:  "username",
-							Prefix: pointer.String("oidc:"),
-						},
-					},
-				},
-				now: func() time.Time { return now },
+				IssuerURL:      "https://auth.example.com",
+				ClientID:       "my-client",
+				UsernameClaim:  "username",
+				UsernamePrefix: "oidc:",
+				now:            func() time.Time { return now },
 			},
 			signingKey: loadRSAPrivKey(t, "testdata/rsa_1.pem", jose.RS256),
 			pubKeys: []*jose.JSONWebKey{
@@ -1574,23 +1237,13 @@ func TestToken(t *testing.T) {
 		{
 			name: "groups-prefix",
 			options: Options{
-				JWTAuthenticator: apiserver.JWTAuthenticator{
-					Issuer: apiserver.Issuer{
-						URL:       "https://auth.example.com",
-						Audiences: []string{"my-client"},
-					},
-					ClaimMappings: apiserver.ClaimMappings{
-						Username: apiserver.PrefixedClaimOrExpression{
-							Claim:  "username",
-							Prefix: pointer.String("oidc:"),
-						},
-						Groups: apiserver.PrefixedClaimOrExpression{
-							Claim:  "groups",
-							Prefix: pointer.String("groups:"),
-						},
-					},
-				},
-				now: func() time.Time { return now },
+				IssuerURL:      "https://auth.example.com",
+				ClientID:       "my-client",
+				UsernameClaim:  "username",
+				UsernamePrefix: "oidc:",
+				GroupsClaim:    "groups",
+				GroupsPrefix:   "groups:",
+				now:            func() time.Time { return now },
 			},
 			signingKey: loadRSAPrivKey(t, "testdata/rsa_1.pem", jose.RS256),
 			pubKeys: []*jose.JSONWebKey{
@@ -1611,23 +1264,13 @@ func TestToken(t *testing.T) {
 		{
 			name: "groups-prefix-distributed",
 			options: Options{
-				JWTAuthenticator: apiserver.JWTAuthenticator{
-					Issuer: apiserver.Issuer{
-						URL:       "{{.URL}}",
-						Audiences: []string{"my-client"},
-					},
-					ClaimMappings: apiserver.ClaimMappings{
-						Username: apiserver.PrefixedClaimOrExpression{
-							Claim:  "username",
-							Prefix: pointer.String("oidc:"),
-						},
-						Groups: apiserver.PrefixedClaimOrExpression{
-							Claim:  "groups",
-							Prefix: pointer.String("groups:"),
-						},
-					},
-				},
-				now: func() time.Time { return now },
+				IssuerURL:      "{{.URL}}",
+				ClientID:       "my-client",
+				UsernameClaim:  "username",
+				UsernamePrefix: "oidc:",
+				GroupsClaim:    "groups",
+				GroupsPrefix:   "groups:",
+				now:            func() time.Time { return now },
 			},
 			signingKey: loadRSAPrivKey(t, "testdata/rsa_1.pem", jose.RS256),
 			pubKeys: []*jose.JSONWebKey{
@@ -1668,19 +1311,10 @@ func TestToken(t *testing.T) {
 		{
 			name: "invalid-signing-alg",
 			options: Options{
-				JWTAuthenticator: apiserver.JWTAuthenticator{
-					Issuer: apiserver.Issuer{
-						URL:       "https://auth.example.com",
-						Audiences: []string{"my-client"},
-					},
-					ClaimMappings: apiserver.ClaimMappings{
-						Username: apiserver.PrefixedClaimOrExpression{
-							Claim:  "username",
-							Prefix: pointer.String("prefix:"),
-						},
-					},
-				},
-				now: func() time.Time { return now },
+				IssuerURL:     "https://auth.example.com",
+				ClientID:      "my-client",
+				UsernameClaim: "username",
+				now:           func() time.Time { return now },
 			},
 			// Correct key but invalid signature algorithm "PS256"
 			signingKey: loadRSAPrivKey(t, "testdata/rsa_1.pem", jose.PS256),
@@ -1698,18 +1332,9 @@ func TestToken(t *testing.T) {
 		{
 			name: "ps256",
 			options: Options{
-				JWTAuthenticator: apiserver.JWTAuthenticator{
-					Issuer: apiserver.Issuer{
-						URL:       "https://auth.example.com",
-						Audiences: []string{"my-client"},
-					},
-					ClaimMappings: apiserver.ClaimMappings{
-						Username: apiserver.PrefixedClaimOrExpression{
-							Claim:  "username",
-							Prefix: pointer.String(""),
-						},
-					},
-				},
+				IssuerURL:            "https://auth.example.com",
+				ClientID:             "my-client",
+				UsernameClaim:        "username",
 				SupportedSigningAlgs: []string{"PS256"},
 				now:                  func() time.Time { return now },
 			},
@@ -1730,18 +1355,9 @@ func TestToken(t *testing.T) {
 		{
 			name: "es512",
 			options: Options{
-				JWTAuthenticator: apiserver.JWTAuthenticator{
-					Issuer: apiserver.Issuer{
-						URL:       "https://auth.example.com",
-						Audiences: []string{"my-client"},
-					},
-					ClaimMappings: apiserver.ClaimMappings{
-						Username: apiserver.PrefixedClaimOrExpression{
-							Claim:  "username",
-							Prefix: pointer.String(""),
-						},
-					},
-				},
+				IssuerURL:            "https://auth.example.com",
+				ClientID:             "my-client",
+				UsernameClaim:        "username",
 				SupportedSigningAlgs: []string{"ES512"},
 				now:                  func() time.Time { return now },
 			},
@@ -1763,61 +1379,34 @@ func TestToken(t *testing.T) {
 		{
 			name: "not-https",
 			options: Options{
-				JWTAuthenticator: apiserver.JWTAuthenticator{
-					Issuer: apiserver.Issuer{
-						URL:       "http://auth.example.com",
-						Audiences: []string{"my-client"},
-					},
-					ClaimMappings: apiserver.ClaimMappings{
-						Username: apiserver.PrefixedClaimOrExpression{
-							Claim:  "username",
-							Prefix: pointer.String("prefix:"),
-						},
-					},
-				},
-				now: func() time.Time { return now },
+				IssuerURL:     "http://auth.example.com",
+				ClientID:      "my-client",
+				UsernameClaim: "username",
+				now:           func() time.Time { return now },
 			},
 			pubKeys: []*jose.JSONWebKey{
 				loadRSAKey(t, "testdata/rsa_1.pem", jose.RS256),
 			},
-			wantInitErr: `issuer.url: Invalid value: "http://auth.example.com": URL scheme must be https`,
+			wantInitErr: `'oidc-issuer-url' ("http://auth.example.com") has invalid scheme ("http"), require 'https'`,
 		},
 		{
 			name: "no-username-claim",
 			options: Options{
-				JWTAuthenticator: apiserver.JWTAuthenticator{
-					Issuer: apiserver.Issuer{
-						URL:       "https://auth.example.com",
-						Audiences: []string{"my-client"},
-					},
-					ClaimMappings: apiserver.ClaimMappings{
-						Username: apiserver.PrefixedClaimOrExpression{
-							Prefix: pointer.String(""),
-						},
-					},
-				},
-				now: func() time.Time { return now },
+				IssuerURL: "https://auth.example.com",
+				ClientID:  "my-client",
+				now:       func() time.Time { return now },
 			},
 			pubKeys: []*jose.JSONWebKey{
 				loadRSAKey(t, "testdata/rsa_1.pem", jose.RS256),
 			},
-			wantInitErr: `claimMappings.username.claim: Required value: claim name is required`,
+			wantInitErr: "no username claim provided",
 		},
 		{
 			name: "invalid-sig-alg",
 			options: Options{
-				JWTAuthenticator: apiserver.JWTAuthenticator{
-					Issuer: apiserver.Issuer{
-						URL:       "https://auth.example.com",
-						Audiences: []string{"my-client"},
-					},
-					ClaimMappings: apiserver.ClaimMappings{
-						Username: apiserver.PrefixedClaimOrExpression{
-							Claim:  "username",
-							Prefix: pointer.String("prefix:"),
-						},
-					},
-				},
+				IssuerURL:            "https://auth.example.com",
+				ClientID:             "my-client",
+				UsernameClaim:        "username",
 				SupportedSigningAlgs: []string{"HS256"},
 				now:                  func() time.Time { return now },
 			},
@@ -1829,18 +1418,9 @@ func TestToken(t *testing.T) {
 		{
 			name: "client and ca mutually exclusive",
 			options: Options{
-				JWTAuthenticator: apiserver.JWTAuthenticator{
-					Issuer: apiserver.Issuer{
-						URL:       "https://auth.example.com",
-						Audiences: []string{"my-client"},
-					},
-					ClaimMappings: apiserver.ClaimMappings{
-						Username: apiserver.PrefixedClaimOrExpression{
-							Claim:  "username",
-							Prefix: pointer.String("prefix:"),
-						},
-					},
-				},
+				IssuerURL:            "https://auth.example.com",
+				ClientID:             "my-client",
+				UsernameClaim:        "username",
 				SupportedSigningAlgs: []string{"RS256"},
 				now:                  func() time.Time { return now },
 				Client:               http.DefaultClient, // test automatically sets CAContentProvider
@@ -1853,19 +1433,10 @@ func TestToken(t *testing.T) {
 		{
 			name: "accounts.google.com issuer",
 			options: Options{
-				JWTAuthenticator: apiserver.JWTAuthenticator{
-					Issuer: apiserver.Issuer{
-						URL:       "https://accounts.google.com",
-						Audiences: []string{"my-client"},
-					},
-					ClaimMappings: apiserver.ClaimMappings{
-						Username: apiserver.PrefixedClaimOrExpression{
-							Claim:  "email",
-							Prefix: pointer.String(""),
-						},
-					},
-				},
-				now: func() time.Time { return now },
+				IssuerURL:     "https://accounts.google.com",
+				ClientID:      "my-client",
+				UsernameClaim: "email",
+				now:           func() time.Time { return now },
 			},
 			claims: fmt.Sprintf(`{
 				"iss": "accounts.google.com",
@@ -1884,19 +1455,10 @@ func TestToken(t *testing.T) {
 		{
 			name: "good token with bad client id",
 			options: Options{
-				JWTAuthenticator: apiserver.JWTAuthenticator{
-					Issuer: apiserver.Issuer{
-						URL:       "https://auth.example.com",
-						Audiences: []string{"my-client"},
-					},
-					ClaimMappings: apiserver.ClaimMappings{
-						Username: apiserver.PrefixedClaimOrExpression{
-							Claim:  "username",
-							Prefix: pointer.String("prefix:"),
-						},
-					},
-				},
-				now: func() time.Time { return now },
+				IssuerURL:     "https://auth.example.com",
+				ClientID:      "my-client",
+				UsernameClaim: "username",
+				now:           func() time.Time { return now },
 			},
 			signingKey: loadRSAPrivKey(t, "testdata/rsa_1.pem", jose.RS256),
 			pubKeys: []*jose.JSONWebKey{
@@ -2018,10 +1580,4 @@ type errTransport string
 
 func (e errTransport) RoundTrip(_ *http.Request) (*http.Response, error) {
 	return nil, fmt.Errorf("%s", e)
-}
-
-func testContext(t *testing.T) context.Context {
-	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
-	return ctx
 }

@@ -52,7 +52,7 @@ func TestMain(m *testing.M) {
 		Config: certutil.Config{
 			CommonName: "Root CA 1",
 		},
-		EncryptionAlgorithm: kubeadmapi.EncryptionAlgorithmRSA,
+		PublicKeyAlgorithm: x509.RSA,
 	})
 	if err != nil {
 		panic(fmt.Sprintf("Failed generating Root CA: %v", err))
@@ -112,7 +112,7 @@ func TestHasServerAuth(t *testing.T) {
 	// Override NewPrivateKey to reuse the same key for all certs
 	// since this test is only checking cert.ExtKeyUsage
 	privateKeyFunc := NewPrivateKey
-	NewPrivateKey = func(kubeadmapi.EncryptionAlgorithmType) (crypto.Signer, error) {
+	NewPrivateKey = func(x509.PublicKeyAlgorithm) (crypto.Signer, error) {
 		return rootCAKey, nil
 	}
 	defer func() {
@@ -141,7 +141,7 @@ func TestHasServerAuth(t *testing.T) {
 					CommonName: "test",
 					Usages:     []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 				},
-				EncryptionAlgorithm: kubeadmapi.EncryptionAlgorithmECDSA,
+				PublicKeyAlgorithm: x509.ECDSA,
 			},
 			expected: true,
 		},

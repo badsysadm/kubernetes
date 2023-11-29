@@ -53,10 +53,6 @@ import (
 	e2enodetestingmanifests "k8s.io/kubernetes/test/e2e_node/testing-manifests"
 	system "k8s.io/system-validators/validators"
 
-	// define and freeze constants
-	_ "k8s.io/kubernetes/test/e2e/feature"
-	_ "k8s.io/kubernetes/test/e2e/nodefeature"
-
 	// reconfigure framework
 	_ "k8s.io/kubernetes/test/e2e/framework/debug/init"
 	_ "k8s.io/kubernetes/test/e2e/framework/metrics/init"
@@ -73,9 +69,6 @@ var (
 	e2es *services.E2EServices
 	// featureGates is a map of feature names to bools that enable or disable alpha/experimental features.
 	featureGates map[string]bool
-	// serviceFeatureGates is a map of feature names to bools that enable or
-	// disable alpha/experimental features for API service.
-	serviceFeatureGates map[string]bool
 
 	// TODO(random-liu): Change the following modes to sub-command.
 	runServicesMode    = flag.Bool("run-services-mode", false, "If true, only run services (etcd, apiserver) in current process, and not run test.")
@@ -107,8 +100,6 @@ func registerNodeFlags(flags *flag.FlagSet) {
 	flag.Var(cliflag.NewMapStringString(&framework.TestContext.RuntimeConfig), "runtime-config", "The runtime configuration used on node e2e tests.")
 	flags.BoolVar(&framework.TestContext.RequireDevices, "require-devices", false, "If true, require device plugins to be installed in the running environment.")
 	flags.Var(cliflag.NewMapStringBool(&featureGates), "feature-gates", "A set of key=value pairs that describe feature gates for alpha/experimental features.")
-	flags.Var(cliflag.NewMapStringBool(&serviceFeatureGates), "service-feature-gates", "A set of key=value pairs that describe feature gates for alpha/experimental features for API service.")
-	flags.BoolVar(&framework.TestContext.StandaloneMode, "standalone-mode", false, "If true, starts kubelet in standalone mode.")
 }
 
 func init() {
@@ -134,21 +125,11 @@ func TestMain(m *testing.M) {
 
 	rand.Seed(time.Now().UnixNano())
 	pflag.Parse()
-	if pflag.CommandLine.NArg() > 0 {
-		fmt.Fprintf(os.Stderr, "unknown additional command line arguments: %s", pflag.CommandLine.Args())
-		os.Exit(1)
-	}
 	framework.AfterReadingAllFlags(&framework.TestContext)
 	if err := e2eskipper.InitFeatureGates(utilfeature.DefaultFeatureGate, featureGates); err != nil {
 		fmt.Fprintf(os.Stderr, "ERROR: initialize feature gates: %v", err)
 		os.Exit(1)
 	}
-
-	if err := services.SetFeatureGatesForInProcessComponents(serviceFeatureGates); err != nil {
-		fmt.Fprintf(os.Stderr, "ERROR: initialize process feature gates for API service: %v", err)
-		os.Exit(1)
-	}
-
 	setExtraEnvs()
 	os.Exit(m.Run())
 }
@@ -158,6 +139,7 @@ func TestMain(m *testing.M) {
 const rootfs = "/rootfs"
 
 func TestE2eNode(t *testing.T) {
+
 	// Make sure we are not limited by sshd when it comes to open files
 	if err := rlimit.SetNumFiles(1000000); err != nil {
 		klog.Infof("failed to set rlimit on max file handles: %v", err)
@@ -213,7 +195,7 @@ func TestE2eNode(t *testing.T) {
 }
 
 // Setup the kubelet on the node
-var _ = ginkgo.SynchronizedBeforeSuite(func(ctx context.Context) []byte {
+var _ = ginkgo.SynchronizedBeforeSuite(func() []byte {
 	// Run system validation test.
 	gomega.Expect(validateSystem()).To(gomega.Succeed(), "system validation")
 
@@ -221,7 +203,7 @@ var _ = ginkgo.SynchronizedBeforeSuite(func(ctx context.Context) []byte {
 	// This helps with debugging test flakes since it is hard to tell when a test failure is due to image pulling.
 	if framework.TestContext.PrepullImages {
 		klog.Infof("Pre-pulling images so that they are cached for the tests.")
-		updateImageAllowList(ctx)
+		updateImageAllowList()
 		err := PrePullAllImages()
 		gomega.Expect(err).ShouldNot(gomega.HaveOccurred())
 	}
@@ -240,10 +222,8 @@ var _ = ginkgo.SynchronizedBeforeSuite(func(ctx context.Context) []byte {
 		klog.Infof("Running tests without starting services.")
 	}
 
-	if !framework.TestContext.StandaloneMode {
-		klog.Infof("Wait for the node to be ready")
-		waitForNodeReady(ctx)
-	}
+	klog.Infof("Wait for the node to be ready")
+	waitForNodeReady()
 
 	// Reference common test to make the import valid.
 	commontest.CurrentSuite = commontest.NodeE2E
@@ -252,17 +232,10 @@ var _ = ginkgo.SynchronizedBeforeSuite(func(ctx context.Context) []byte {
 	// Since the bearer token is generated randomly at run time,
 	// we need to distribute the bearer token to other processes to make them use the same token.
 	return []byte(framework.TestContext.BearerToken)
-}, func(ctx context.Context, token []byte) {
+}, func(token []byte) {
 	framework.TestContext.BearerToken = string(token)
 	// update test context with node configuration.
-	gomega.Expect(updateTestContext(ctx)).To(gomega.Succeed(), "update test context with node config.")
-
-	// Store current Kubelet configuration in the package variable
-	// This assumes all tests which dynamically change kubelet configuration
-	// must: 1) run in serial; 2) restore kubelet configuration after test.
-	var err error
-	kubeletCfg, err = getCurrentKubeletConfig(ctx)
-	framework.ExpectNoError(err)
+	gomega.Expect(updateTestContext()).To(gomega.Succeed(), "update test context with node config.")
 })
 
 // Tear down the kubelet on the node
@@ -281,14 +254,14 @@ var _ = ginkgo.SynchronizedAfterSuite(func() {}, func() {
 func validateSystem() error {
 	testBin, err := os.Executable()
 	if err != nil {
-		return fmt.Errorf("can't get current binary: %w", err)
+		return fmt.Errorf("can't get current binary: %v", err)
 	}
 	// Pass all flags into the child process, so that it will see the same flag set.
 	output, err := exec.Command(testBin, append([]string{"--system-validate-mode"}, os.Args[1:]...)...).CombinedOutput()
 	// The output of system validation should have been formatted, directly print here.
 	fmt.Print(string(output))
 	if err != nil {
-		return fmt.Errorf("system validation failed: %w", err)
+		return fmt.Errorf("system validation failed: %v", err)
 	}
 	return nil
 }
@@ -307,7 +280,7 @@ func maskLocksmithdOnCoreos() {
 	}
 }
 
-func waitForNodeReady(ctx context.Context) {
+func waitForNodeReady() {
 	const (
 		// nodeReadyTimeout is the time to wait for node to become ready.
 		nodeReadyTimeout = 2 * time.Minute
@@ -316,10 +289,10 @@ func waitForNodeReady(ctx context.Context) {
 	)
 	client, err := getAPIServerClient()
 	framework.ExpectNoError(err, "should be able to get apiserver client.")
-	gomega.Eventually(ctx, func() error {
+	gomega.Eventually(func() error {
 		node, err := getNode(client)
 		if err != nil {
-			return fmt.Errorf("failed to get node: %w", err)
+			return fmt.Errorf("failed to get node: %v", err)
 		}
 		if !isNodeReady(node) {
 			return fmt.Errorf("node is not ready: %+v", node)
@@ -329,26 +302,28 @@ func waitForNodeReady(ctx context.Context) {
 }
 
 // updateTestContext updates the test context with the node name.
-func updateTestContext(ctx context.Context) error {
+func updateTestContext() error {
 	setExtraEnvs()
-	updateImageAllowList(ctx)
+	updateImageAllowList()
 
 	client, err := getAPIServerClient()
 	if err != nil {
-		return fmt.Errorf("failed to get apiserver client: %w", err)
+		return fmt.Errorf("failed to get apiserver client: %v", err)
 	}
-
-	if !framework.TestContext.StandaloneMode {
-		// Update test context with current node object.
-		node, err := getNode(client)
-		if err != nil {
-			return fmt.Errorf("failed to get node: %w", err)
-		}
-		framework.TestContext.NodeName = node.Name // Set node name from API server, it is already set to the computer name by default.
+	// Update test context with current node object.
+	node, err := getNode(client)
+	if err != nil {
+		return fmt.Errorf("failed to get node: %v", err)
 	}
-
-	framework.Logf("Node name: %s", framework.TestContext.NodeName)
-
+	framework.TestContext.NodeName = node.Name // Set node name.
+	// Update test context with current kubelet configuration.
+	// This assumes all tests which dynamically change kubelet configuration
+	// must: 1) run in serial; 2) restore kubelet configuration after test.
+	kubeletCfg, err := getCurrentKubeletConfig()
+	if err != nil {
+		return fmt.Errorf("failed to get kubelet configuration: %v", err)
+	}
+	framework.TestContext.KubeletConfig = *kubeletCfg // Set kubelet config
 	return nil
 }
 
@@ -359,7 +334,7 @@ func getNode(c *clientset.Clientset) (*v1.Node, error) {
 	if nodes == nil {
 		return nil, fmt.Errorf("the node list is nil")
 	}
-	gomega.Expect(len(nodes.Items)).To(gomega.BeNumerically("<=", 1), "the number of nodes is more than 1.")
+	framework.ExpectEqual(len(nodes.Items) > 1, false, "the number of nodes is more than 1.")
 	if len(nodes.Items) == 0 {
 		return nil, fmt.Errorf("empty node list: %+v", nodes)
 	}
@@ -370,11 +345,11 @@ func getNode(c *clientset.Clientset) (*v1.Node, error) {
 func getAPIServerClient() (*clientset.Clientset, error) {
 	config, err := framework.LoadConfig()
 	if err != nil {
-		return nil, fmt.Errorf("failed to load config: %w", err)
+		return nil, fmt.Errorf("failed to load config: %v", err)
 	}
 	client, err := clientset.NewForConfig(config)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create client: %w", err)
+		return nil, fmt.Errorf("failed to create client: %v", err)
 	}
 	return client, nil
 }

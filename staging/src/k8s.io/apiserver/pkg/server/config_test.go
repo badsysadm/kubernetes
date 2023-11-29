@@ -18,7 +18,7 @@ package server
 
 import (
 	"fmt"
-	"io"
+	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
 	"net/http/httputil"
@@ -26,7 +26,6 @@ import (
 	"testing"
 	"time"
 
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/json"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -171,7 +170,6 @@ func TestNewWithDelegate(t *testing.T) {
 		"/livez/poststarthook/storage-object-count-tracker-hook",
 		"/livez/poststarthook/wrapping-post-start-hook",
 		"/metrics",
-		"/metrics/slis",
 		"/readyz",
 		"/readyz/delegate-health",
 		"/readyz/informer-sync",
@@ -193,7 +191,7 @@ func TestNewWithDelegate(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		data, _ := io.ReadAll(resp.Body)
+		data, _ := ioutil.ReadAll(resp.Body)
 		if http.StatusOK != resp.StatusCode {
 			t.Logf("got %d", resp.StatusCode)
 			t.Log(string(data))
@@ -234,7 +232,7 @@ func checkPath(url string, expectedStatusCode int, expectedBody string, t *testi
 		dump, _ := httputil.DumpResponse(resp, true)
 		t.Log(string(dump))
 
-		body, err := io.ReadAll(resp.Body)
+		body, err := ioutil.ReadAll(resp.Body)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -257,7 +255,7 @@ func checkExpectedPathsAtRoot(url string, expectedPaths []string, t *testing.T) 
 		dump, _ := httputil.DumpResponse(resp, true)
 		t.Log(string(dump))
 
-		body, err := io.ReadAll(resp.Body)
+		body, err := ioutil.ReadAll(resp.Body)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -286,6 +284,11 @@ func TestAuthenticationAuditAnnotationsDefaultChain(t *testing.T) {
 		// confirm that we can set an audit annotation in a handler before WithAudit
 		audit.AddAuditAnnotation(req.Context(), "pandas", "are awesome")
 
+		// confirm that trying to use the audit event directly would never work
+		if ae := audit.AuditEventFrom(req.Context()); ae != nil {
+			t.Errorf("expected nil audit event, got %v", ae)
+		}
+
 		return &authenticator.Response{User: &user.DefaultInfo{}}, true, nil
 	})
 	backend := &testBackend{}
@@ -295,12 +298,12 @@ func TestAuthenticationAuditAnnotationsDefaultChain(t *testing.T) {
 		AuditPolicyRuleEvaluator: policy.NewFakePolicyRuleEvaluator(auditinternal.LevelMetadata, nil),
 
 		// avoid nil panics
-		NonLongRunningRequestWaitGroup: &waitgroup.SafeWaitGroup{},
-		RequestInfoResolver:            &request.RequestInfoFactory{},
-		RequestTimeout:                 10 * time.Second,
-		LongRunningFunc:                func(_ *http.Request, _ *request.RequestInfo) bool { return false },
-		lifecycleSignals:               newLifecycleSignals(),
-		TracerProvider:                 tracing.NewNoopTracerProvider(),
+		HandlerChainWaitGroup: &waitgroup.SafeWaitGroup{},
+		RequestInfoResolver:   &request.RequestInfoFactory{},
+		RequestTimeout:        10 * time.Second,
+		LongRunningFunc:       func(_ *http.Request, _ *request.RequestInfo) bool { return false },
+		lifecycleSignals:      newLifecycleSignals(),
+		TracerProvider:        tracing.NewNoopTracerProvider(),
 	}
 
 	h := DefaultBuildHandlerChain(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -362,22 +365,4 @@ type testBackend struct {
 func (b *testBackend) ProcessEvents(events ...*auditinternal.Event) bool {
 	b.events = append(b.events, events...)
 	return true
-}
-
-func TestNewErrorForbiddenSerializer(t *testing.T) {
-	config := CompletedConfig{
-		&completedConfig{
-			Config: &Config{
-				Serializer: runtime.NewSimpleNegotiatedSerializer(runtime.SerializerInfo{
-					MediaType: "application/cbor",
-				}),
-			},
-		},
-	}
-	_, err := config.New("test", NewEmptyDelegate())
-	if err == nil {
-		t.Error("successfully created a new server configured with cbor support")
-	} else if err.Error() != `refusing to create new apiserver "test" with support for media type "application/cbor" (allowed media types are: application/json, application/yaml, application/vnd.kubernetes.protobuf)` {
-		t.Errorf("unexpected error: %v", err)
-	}
 }

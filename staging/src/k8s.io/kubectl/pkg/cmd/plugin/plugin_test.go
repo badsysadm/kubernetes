@@ -18,21 +18,22 @@ package plugin
 
 import (
 	"fmt"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 
-	"k8s.io/cli-runtime/pkg/genericiooptions"
+	"k8s.io/cli-runtime/pkg/genericclioptions"
 )
 
 func TestPluginPathsAreUnaltered(t *testing.T) {
-	tempDir, err := os.MkdirTemp(os.TempDir(), "test-cmd-plugins")
+	tempDir, err := ioutil.TempDir(os.TempDir(), "test-cmd-plugins")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	tempDir2, err := os.MkdirTemp(os.TempDir(), "test-cmd-plugins2")
+	tempDir2, err := ioutil.TempDir(os.TempDir(), "test-cmd-plugins2")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -46,7 +47,7 @@ func TestPluginPathsAreUnaltered(t *testing.T) {
 		}
 	}()
 
-	ioStreams, _, _, errOut := genericiooptions.NewTestIOStreams()
+	ioStreams, _, _, errOut := genericclioptions.NewTestIOStreams()
 	verifier := newFakePluginPathVerifier()
 	pluginPaths := []string{tempDir, tempDir2}
 	o := &PluginListOptions{
@@ -57,10 +58,10 @@ func TestPluginPathsAreUnaltered(t *testing.T) {
 	}
 
 	// write at least one valid plugin file
-	if _, err := os.CreateTemp(tempDir, "kubectl-"); err != nil {
+	if _, err := ioutil.TempFile(tempDir, "kubectl-"); err != nil {
 		t.Fatalf("unexpected error %v", err)
 	}
-	if _, err := os.CreateTemp(tempDir2, "kubectl-"); err != nil {
+	if _, err := ioutil.TempFile(tempDir2, "kubectl-"); err != nil {
 		t.Fatalf("unexpected error %v", err)
 	}
 
@@ -80,7 +81,7 @@ func TestPluginPathsAreUnaltered(t *testing.T) {
 }
 
 func TestPluginPathsAreValid(t *testing.T) {
-	tempDir, err := os.MkdirTemp(os.TempDir(), "test-cmd-plugins")
+	tempDir, err := ioutil.TempDir(os.TempDir(), "test-cmd-plugins")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -106,7 +107,7 @@ func TestPluginPathsAreValid(t *testing.T) {
 			pluginPaths: []string{tempDir},
 			verifier:    newFakePluginPathVerifier(),
 			pluginFile: func() (*os.File, error) {
-				return os.CreateTemp(tempDir, "notkubectl-")
+				return ioutil.TempFile(tempDir, "notkubectl-")
 			},
 			expectErr: "error: unable to find any kubectl plugins in your PATH\n",
 		},
@@ -115,7 +116,7 @@ func TestPluginPathsAreValid(t *testing.T) {
 			pluginPaths: []string{tempDir, tempDir},
 			verifier:    newFakePluginPathVerifier(),
 			pluginFile: func() (*os.File, error) {
-				return os.CreateTemp(tempDir, "kubectl-")
+				return ioutil.TempFile(tempDir, "kubectl-")
 			},
 			expectOut: "The following compatible plugins are available:",
 		},
@@ -124,7 +125,7 @@ func TestPluginPathsAreValid(t *testing.T) {
 			pluginPaths: []string{tempDir, "", " "},
 			verifier:    newFakePluginPathVerifier(),
 			pluginFile: func() (*os.File, error) {
-				return os.CreateTemp(tempDir, "kubectl-")
+				return ioutil.TempFile(tempDir, "kubectl-")
 			},
 			expectOut: "The following compatible plugins are available:",
 		},
@@ -132,7 +133,7 @@ func TestPluginPathsAreValid(t *testing.T) {
 
 	for _, test := range tc {
 		t.Run(test.name, func(t *testing.T) {
-			ioStreams, _, out, errOut := genericiooptions.NewTestIOStreams()
+			ioStreams, _, out, errOut := genericclioptions.NewTestIOStreams()
 			o := &PluginListOptions{
 				Verifier:  test.verifier,
 				IOStreams: ioStreams,
@@ -182,13 +183,12 @@ func TestPluginPathsAreValid(t *testing.T) {
 func TestListPlugins(t *testing.T) {
 	pluginPath, _ := filepath.Abs("./testdata")
 	expectPlugins := []string{
-		filepath.Join(pluginPath, "kubectl-create-foo"),
 		filepath.Join(pluginPath, "kubectl-foo"),
 		filepath.Join(pluginPath, "kubectl-version"),
 	}
 
 	verifier := newFakePluginPathVerifier()
-	ioStreams, _, _, _ := genericiooptions.NewTestIOStreams()
+	ioStreams, _, _, _ := genericclioptions.NewTestIOStreams()
 	pluginPaths := []string{pluginPath}
 
 	o := &PluginListOptions{

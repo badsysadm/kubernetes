@@ -17,12 +17,11 @@ limitations under the License.
 package config
 
 import (
+	"io/ioutil"
 	"os"
 	"testing"
 
-	utiltesting "k8s.io/client-go/util/testing"
-
-	"k8s.io/cli-runtime/pkg/genericiooptions"
+	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 )
@@ -295,11 +294,11 @@ users:
 }
 
 func (test viewClusterTest) run(t *testing.T) {
-	fakeKubeFile, err := os.CreateTemp(os.TempDir(), "")
+	fakeKubeFile, err := ioutil.TempFile(os.TempDir(), "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	defer utiltesting.CloseAndRemove(t, fakeKubeFile)
+	defer os.Remove(fakeKubeFile.Name())
 	err = clientcmd.WriteToFile(test.config, fakeKubeFile.Name())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -307,7 +306,7 @@ func (test viewClusterTest) run(t *testing.T) {
 	pathOptions := clientcmd.NewDefaultPathOptions()
 	pathOptions.GlobalFile = fakeKubeFile.Name()
 	pathOptions.EnvVar = ""
-	streams, _, buf, _ := genericiooptions.NewTestIOStreams()
+	streams, _, buf, _ := genericclioptions.NewTestIOStreams()
 	cmd := NewCmdConfigView(streams, pathOptions)
 	// "context" is a global flag, inherited from base kubectl command in the real world
 	cmd.Flags().String("context", "", "The name of the kubeconfig context to use")

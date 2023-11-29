@@ -67,7 +67,12 @@
       },
       "requests": {
         "requestsKey": "0"
-      }
+      },
+      "claims": [
+        {
+          "name": "nameValue"
+        }
+      ]
     },
     "volumeName": "volumeNameValue",
     "storageClassName": "storageClassNameValue",
@@ -105,8 +110,6 @@
     "allocatedResources": {
       "allocatedResourcesKey": "0"
     },
-    "allocatedResourceStatuses": {
-      "allocatedResourceStatusesKey": "allocatedResourceStatusesValue"
-    }
+    "resizeStatus": "resizeStatusValue"
   }
 }

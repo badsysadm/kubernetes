@@ -159,7 +159,7 @@ __EOF__
   local tries=5
   for i in $(seq 1 $tries); do
       local output
-      output=$(kubectl "${kube_flags[@]:?}" api-resources --api-group mygroup.example.com -oname || true)
+      output=$(kubectl "${kube_flags[@]:?}" api-resources --api-group mygroup.example.com -oname)
       if kube::test::if_has_string "$output" resources.mygroup.example.com; then
           break
       fi

@@ -33,7 +33,7 @@ import (
 
 var _ = utils.SIGDescribe("Node Unregister [Feature:vsphere] [Slow] [Disruptive]", func() {
 	f := framework.NewDefaultFramework("node-unregister")
-	f.NamespacePodSecurityLevel = admissionapi.LevelPrivileged
+	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	var (
 		client     clientset.Interface
 		namespace  string
@@ -41,19 +41,19 @@ var _ = utils.SIGDescribe("Node Unregister [Feature:vsphere] [Slow] [Disruptive]
 		err        error
 	)
 
-	ginkgo.BeforeEach(func(ctx context.Context) {
+	ginkgo.BeforeEach(func() {
 		e2eskipper.SkipUnlessProviderIs("vsphere")
 		Bootstrap(f)
 		client = f.ClientSet
 		namespace = f.Namespace.Name
-		framework.ExpectNoError(e2enode.WaitForAllNodesSchedulable(ctx, client, f.Timeouts.NodeSchedulable))
+		framework.ExpectNoError(e2enode.WaitForAllNodesSchedulable(client, framework.TestContext.NodeSchedulableTimeout))
 		framework.ExpectNoError(err)
 		workingDir = GetAndExpectStringEnvVar("VSPHERE_WORKING_DIR")
 	})
 
-	ginkgo.It("node unregister", func(ctx context.Context) {
+	ginkgo.It("node unregister", func() {
 		ginkgo.By("Get total Ready nodes")
-		nodeList, err := e2enode.GetReadySchedulableNodes(ctx, f.ClientSet)
+		nodeList, err := e2enode.GetReadySchedulableNodes(f.ClientSet)
 		framework.ExpectNoError(err)
 		if len(nodeList.Items) < 2 {
 			framework.Failf("At least 2 nodes are required for this test, got instead: %v", len(nodeList.Items))
@@ -67,7 +67,10 @@ var _ = utils.SIGDescribe("Node Unregister [Feature:vsphere] [Slow] [Disruptive]
 
 		// Find VM .vmx file path, host, resource pool.
 		// They are required to register a node VM to VC
-		vmxFilePath := getVMXFilePath(ctx, vmObject)
+		vmxFilePath := getVMXFilePath(vmObject)
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 
 		vmHost, err := vmObject.HostSystem(ctx)
 		framework.ExpectNoError(err)
@@ -77,15 +80,13 @@ var _ = utils.SIGDescribe("Node Unregister [Feature:vsphere] [Slow] [Disruptive]
 
 		// Unregister Node VM
 		ginkgo.By("Unregister a node VM")
-		unregisterNodeVM(ctx, nodeVM.ObjectMeta.Name, vmObject)
+		unregisterNodeVM(nodeVM.ObjectMeta.Name, vmObject)
 
 		// Ready nodes should be 1 less
 		ginkgo.By("Verifying the ready node counts")
-		if !verifyReadyNodeCount(ctx, f.ClientSet, totalNodesCount-1) {
-			framework.Failf("Unable to verify expected ready node count. Total Nodes: %d, Expected Ready Nodes: %d", totalNodesCount, totalNodesCount-1)
-		}
+		framework.ExpectEqual(verifyReadyNodeCount(f.ClientSet, totalNodesCount-1), true, "Unable to verify expected ready node count")
 
-		nodeList, err = e2enode.GetReadySchedulableNodes(ctx, client)
+		nodeList, err = e2enode.GetReadySchedulableNodes(client)
 		framework.ExpectNoError(err)
 
 		var nodeNameList []string
@@ -96,15 +97,13 @@ var _ = utils.SIGDescribe("Node Unregister [Feature:vsphere] [Slow] [Disruptive]
 
 		// Register Node VM
 		ginkgo.By("Register back the node VM")
-		registerNodeVM(ctx, nodeVM.ObjectMeta.Name, workingDir, vmxFilePath, vmPool, vmHost)
+		registerNodeVM(nodeVM.ObjectMeta.Name, workingDir, vmxFilePath, vmPool, vmHost)
 
 		// Ready nodes should be equal to earlier count
 		ginkgo.By("Verifying the ready node counts")
-		if !verifyReadyNodeCount(ctx, f.ClientSet, totalNodesCount) {
-			framework.Failf("Unable to verify expected ready node count. Total Nodes: %d, Expected Ready Nodes: %d", totalNodesCount, totalNodesCount)
-		}
+		framework.ExpectEqual(verifyReadyNodeCount(f.ClientSet, totalNodesCount), true, "Unable to verify expected ready node count")
 
-		nodeList, err = e2enode.GetReadySchedulableNodes(ctx, client)
+		nodeList, err = e2enode.GetReadySchedulableNodes(client)
 		framework.ExpectNoError(err)
 
 		nodeNameList = nodeNameList[:0]
@@ -118,6 +117,6 @@ var _ = utils.SIGDescribe("Node Unregister [Feature:vsphere] [Slow] [Disruptive]
 		scParameters := make(map[string]string)
 		storagePolicy := GetAndExpectStringEnvVar("VSPHERE_SPBM_GOLD_POLICY")
 		scParameters[SpbmStoragePolicy] = storagePolicy
-		invokeValidPolicyTest(ctx, f, client, namespace, scParameters)
+		invokeValidPolicyTest(f, client, namespace, scParameters)
 	})
 })

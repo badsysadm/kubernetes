@@ -19,6 +19,7 @@ package app
 import (
 	"time"
 
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/restmapper"
 	controllersmetrics "k8s.io/component-base/metrics/prometheus/controllers"
@@ -44,6 +45,9 @@ type ControllerContext struct {
 	// initialization of the RESTMapper until the first mapping is
 	// requested.
 	RESTMapper *restmapper.DeferredDiscoveryRESTMapper
+
+	// AvailableResources is a map listing currently available resources
+	AvailableResources map[schema.GroupVersionResource]bool
 
 	// Stop is the stop channel
 	Stop <-chan struct{}

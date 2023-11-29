@@ -72,10 +72,10 @@ func (f *RemoteRuntime) RemoveImage(ctx context.Context, req *kubeapi.RemoveImag
 
 // ImageFsInfo returns information of the filesystem that is used to store images.
 func (f *RemoteRuntime) ImageFsInfo(ctx context.Context, req *kubeapi.ImageFsInfoRequest) (*kubeapi.ImageFsInfoResponse, error) {
-	resp, err := f.ImageService.ImageFsInfo(ctx)
+	fsUsage, err := f.ImageService.ImageFsInfo(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	return resp, nil
+	return &kubeapi.ImageFsInfoResponse{ImageFilesystems: fsUsage}, nil
 }

@@ -16,10 +16,12 @@ limitations under the License.
 
 // This test checks that various VolumeSources are working.
 
+// test/e2e/common/volumes.go duplicates the GlusterFS test from this file.  Any changes made to this
+// test should be made there as well.
+
 package testsuites
 
 import (
-	"context"
 	"fmt"
 	"path/filepath"
 
@@ -127,36 +129,38 @@ func (t *volumesTestSuite) DefineTests(driver storageframework.TestDriver, patte
 	// Beware that it also registers an AfterEach which renders f unusable. Any code using
 	// f must run inside an It or Context callback.
 	f := framework.NewFrameworkWithCustomTimeouts("volume", storageframework.GetDriverTimeouts(driver))
-	f.NamespacePodSecurityLevel = admissionapi.LevelPrivileged
+	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 
-	init := func(ctx context.Context) {
+	init := func() {
 		l = local{}
 
 		// Now do the more expensive test initialization.
-		l.config = driver.PrepareTest(ctx, f)
-		l.migrationCheck = newMigrationOpCheck(ctx, f.ClientSet, f.ClientConfig(), dInfo.InTreePluginName)
+		l.config = driver.PrepareTest(f)
+		l.migrationCheck = newMigrationOpCheck(f.ClientSet, f.ClientConfig(), dInfo.InTreePluginName)
 		testVolumeSizeRange := t.GetTestSuiteInfo().SupportedSizeRange
-		l.resource = storageframework.CreateVolumeResource(ctx, driver, l.config, pattern, testVolumeSizeRange)
+		l.resource = storageframework.CreateVolumeResource(driver, l.config, pattern, testVolumeSizeRange)
 		if l.resource.VolSource == nil {
 			e2eskipper.Skipf("Driver %q does not define volumeSource - skipping", dInfo.Name)
 		}
 	}
 
-	cleanup := func(ctx context.Context) {
+	cleanup := func() {
 		var errs []error
 		if l.resource != nil {
-			errs = append(errs, l.resource.CleanupResource(ctx))
+			errs = append(errs, l.resource.CleanupResource())
 			l.resource = nil
 		}
 
 		framework.ExpectNoError(errors.NewAggregate(errs), "while cleaning up resource")
-		l.migrationCheck.validateMigrationVolumeOpCounts(ctx)
+		l.migrationCheck.validateMigrationVolumeOpCounts()
 	}
 
-	ginkgo.It("should store data", func(ctx context.Context) {
-		init(ctx)
-		ginkgo.DeferCleanup(e2evolume.TestServerCleanup, f, storageframework.ConvertTestConfig(l.config))
-		ginkgo.DeferCleanup(cleanup)
+	ginkgo.It("should store data", func() {
+		init()
+		defer func() {
+			e2evolume.TestServerCleanup(f, storageframework.ConvertTestConfig(l.config))
+			cleanup()
+		}()
 
 		tests := []e2evolume.Test{
 			{
@@ -178,9 +182,9 @@ func (t *volumesTestSuite) DefineTests(driver storageframework.TestDriver, patte
 		// local), plugin skips setting fsGroup if volume is already mounted
 		// and we don't have reliable way to detect volumes are unmounted or
 		// not before starting the second pod.
-		e2evolume.InjectContent(ctx, f, config, fsGroup, pattern.FsType, tests)
+		e2evolume.InjectContent(f, config, fsGroup, pattern.FsType, tests)
 		if driver.GetDriverInfo().Capabilities[storageframework.CapPersistence] {
-			e2evolume.TestVolumeClient(ctx, f, config, fsGroup, pattern.FsType, tests)
+			e2evolume.TestVolumeClient(f, config, fsGroup, pattern.FsType, tests)
 		} else {
 			ginkgo.By("Skipping persistence check for non-persistent volume")
 		}
@@ -188,18 +192,17 @@ func (t *volumesTestSuite) DefineTests(driver storageframework.TestDriver, patte
 
 	// Exec works only on filesystem volumes
 	if pattern.VolMode != v1.PersistentVolumeBlock {
-		ginkgo.It("should allow exec of files on the volume", func(ctx context.Context) {
+		ginkgo.It("should allow exec of files on the volume", func() {
 			skipExecTest(driver)
-			init(ctx)
-			ginkgo.DeferCleanup(cleanup)
+			init()
+			defer cleanup()
 
-			testScriptInPod(ctx, f, string(pattern.VolType), l.resource.VolSource, l.config)
+			testScriptInPod(f, string(pattern.VolType), l.resource.VolSource, l.config)
 		})
 	}
 }
 
 func testScriptInPod(
-	ctx context.Context,
 	f *framework.Framework,
 	volumeType string,
 	source *v1.VolumeSource,
@@ -248,10 +251,10 @@ func testScriptInPod(
 	}
 	e2epod.SetNodeSelection(&pod.Spec, config.ClientNodeSelection)
 	ginkgo.By(fmt.Sprintf("Creating pod %s", pod.Name))
-	e2eoutput.TestContainerOutput(ctx, f, "exec-volume-test", pod, 0, []string{fileName})
+	e2eoutput.TestContainerOutput(f, "exec-volume-test", pod, 0, []string{fileName})
 
 	ginkgo.By(fmt.Sprintf("Deleting pod %s", pod.Name))
-	err := e2epod.DeletePodWithWait(ctx, f.ClientSet, pod)
+	err := e2epod.DeletePodWithWait(f.ClientSet, pod)
 	framework.ExpectNoError(err, "while deleting pod")
 }
 

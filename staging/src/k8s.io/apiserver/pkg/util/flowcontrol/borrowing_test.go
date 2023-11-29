@@ -23,7 +23,7 @@ import (
 	"testing"
 	"time"
 
-	flowcontrol "k8s.io/api/flowcontrol/v1"
+	flowcontrol "k8s.io/api/flowcontrol/v1beta3"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -36,7 +36,6 @@ import (
 	fcrequest "k8s.io/apiserver/pkg/util/flowcontrol/request"
 	"k8s.io/client-go/informers"
 	clientsetfake "k8s.io/client-go/kubernetes/fake"
-	"k8s.io/utils/ptr"
 )
 
 type borrowingTestConstraints struct {
@@ -116,7 +115,7 @@ func TestBorrowing(t *testing.T) {
 					Spec: flowcontrol.PriorityLevelConfigurationSpec{
 						Type: flowcontrol.PriorityLevelEnablementLimited,
 						Limited: &flowcontrol.LimitedPriorityLevelConfiguration{
-							NominalConcurrencyShares: ptr.To(int32(100)),
+							NominalConcurrencyShares: 100,
 							LendablePercent:          &testCase.constraints[flow].lendable,
 							BorrowingLimitPercent:    &testCase.constraints[flow].borrowing,
 							LimitResponse: flowcontrol.LimitResponse{
@@ -134,7 +133,7 @@ func TestBorrowing(t *testing.T) {
 			}
 			clientset := clientsetfake.NewSimpleClientset(cfgObjs...)
 			informerFactory := informers.NewSharedInformerFactory(clientset, time.Second)
-			flowcontrolClient := clientset.FlowcontrolV1()
+			flowcontrolClient := clientset.FlowcontrolV1beta3()
 			clk := eventclock.Real{}
 			controller := newTestableController(TestableConfig{
 				Name:                   "Controller",
@@ -144,6 +143,7 @@ func TestBorrowing(t *testing.T) {
 				InformerFactory:        informerFactory,
 				FlowcontrolClient:      flowcontrolClient,
 				ServerConcurrencyLimit: 24,
+				RequestWaitLimit:       time.Minute,
 				ReqsGaugeVec:           metrics.PriorityLevelConcurrencyGaugeVec,
 				ExecSeatsGaugeVec:      metrics.PriorityLevelExecutionSeatsGaugeVec,
 				QueueSetFactory:        fqs.NewQueueSetFactory(clk),

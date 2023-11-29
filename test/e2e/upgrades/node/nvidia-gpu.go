@@ -17,15 +17,12 @@ limitations under the License.
 package node
 
 import (
-	"context"
-
 	"k8s.io/kubernetes/test/e2e/framework"
 	e2ejob "k8s.io/kubernetes/test/e2e/framework/job"
 	"k8s.io/kubernetes/test/e2e/scheduling"
 	"k8s.io/kubernetes/test/e2e/upgrades"
 
 	"github.com/onsi/ginkgo/v2"
-	"github.com/onsi/gomega"
 )
 
 const (
@@ -41,27 +38,27 @@ type NvidiaGPUUpgradeTest struct {
 func (NvidiaGPUUpgradeTest) Name() string { return "nvidia-gpu-upgrade [sig-node] [sig-scheduling]" }
 
 // Setup creates a job requesting gpu.
-func (t *NvidiaGPUUpgradeTest) Setup(ctx context.Context, f *framework.Framework) {
-	scheduling.SetupNVIDIAGPUNode(ctx, f, false)
+func (t *NvidiaGPUUpgradeTest) Setup(f *framework.Framework) {
+	scheduling.SetupNVIDIAGPUNode(f, false)
 	ginkgo.By("Creating a job requesting gpu")
-	scheduling.StartJob(ctx, f, completions)
+	scheduling.StartJob(f, completions)
 }
 
 // Test waits for the upgrade to complete, and then verifies that the
 // cuda pod started by the gpu job can successfully finish.
-func (t *NvidiaGPUUpgradeTest) Test(ctx context.Context, f *framework.Framework, done <-chan struct{}, upgrade upgrades.UpgradeType) {
+func (t *NvidiaGPUUpgradeTest) Test(f *framework.Framework, done <-chan struct{}, upgrade upgrades.UpgradeType) {
 	<-done
 	ginkgo.By("Verifying gpu job success")
-	scheduling.VerifyJobNCompletions(ctx, f, completions)
+	scheduling.VerifyJobNCompletions(f, completions)
 	if upgrade == upgrades.MasterUpgrade || upgrade == upgrades.ClusterUpgrade {
 		// MasterUpgrade should be totally hitless.
-		job, err := e2ejob.GetJob(ctx, f.ClientSet, f.Namespace.Name, "cuda-add")
+		job, err := e2ejob.GetJob(f.ClientSet, f.Namespace.Name, "cuda-add")
 		framework.ExpectNoError(err)
-		gomega.Expect(job.Status.Failed).To(gomega.BeZero(), "Job pods failed during master upgrade: %v", job.Status.Failed)
+		framework.ExpectEqual(job.Status.Failed, 0, "Job pods failed during master upgrade: %v", job.Status.Failed)
 	}
 }
 
 // Teardown cleans up any remaining resources.
-func (t *NvidiaGPUUpgradeTest) Teardown(ctx context.Context, f *framework.Framework) {
+func (t *NvidiaGPUUpgradeTest) Teardown(f *framework.Framework) {
 	// rely on the namespace deletion to clean up everything
 }

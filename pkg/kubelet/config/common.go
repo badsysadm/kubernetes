@@ -120,10 +120,6 @@ func tryDecodeSinglePod(data []byte, defaultFn defaultFunc) (parsed bool, pod *v
 		return false, pod, fmt.Errorf("invalid pod: %#v", obj)
 	}
 
-	if newPod.Name == "" {
-		return true, pod, fmt.Errorf("invalid pod: name is needed for the pod")
-	}
-
 	// Apply default values and validate the pod.
 	if err = defaultFn(newPod); err != nil {
 		return true, pod, err
@@ -155,9 +151,6 @@ func tryDecodePodList(data []byte, defaultFn defaultFunc) (parsed bool, pods v1.
 	// Apply default values and validate pods.
 	for i := range newPods.Items {
 		newPod := &newPods.Items[i]
-		if newPod.Name == "" {
-			return true, pods, fmt.Errorf("invalid pod: name is needed for the pod")
-		}
 		if err = defaultFn(newPod); err != nil {
 			return true, pods, err
 		}

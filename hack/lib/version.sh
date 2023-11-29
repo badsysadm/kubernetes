@@ -42,13 +42,13 @@ kube::version::get_version_vars() {
   # shellcheck disable=SC2016,SC2050
   # Disabled as we're not expanding these at runtime, but rather expecting
   # that another tool may have expanded these and rewritten the source (!)
-  if [[ '$Format:%%$' == "%" ]]; then
-    KUBE_GIT_COMMIT='$Format:%H$'
+  if [[ '%' == "%" ]]; then
+    KUBE_GIT_COMMIT='11902a838028edef305dfe2f96be929bc4d114d8'
     KUBE_GIT_TREE_STATE="archive"
-    # When a 'git archive' is exported, the '$Format:%D$' below will look
+    # When a 'git archive' is exported, the '' below will look
     # something like 'HEAD -> release-1.8, tag: v1.8.3' where then 'tag: '
     # can be extracted from it.
-    if [[ '$Format:%D$' =~ tag:\ (v[^ ,]+) ]]; then
+    if [[ '' =~ tag:\ (v[^ ,]+) ]]; then
      KUBE_GIT_VERSION="${BASH_REMATCH[1]}"
     fi
   fi

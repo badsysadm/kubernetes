@@ -157,7 +157,7 @@ func goServe(server *grpc.Server, wg *sync.WaitGroup, listener net.Listener, sta
 		started <- true
 		err := server.Serve(listener)
 		if err != nil {
-			klog.Infof("gRPC server for CSI driver stopped: %v", err)
+			panic(err.Error())
 		}
 	}()
 }

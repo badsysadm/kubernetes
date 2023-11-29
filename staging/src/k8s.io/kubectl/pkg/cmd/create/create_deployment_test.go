@@ -18,7 +18,7 @@ package create
 
 import (
 	"bytes"
-	"io"
+	"io/ioutil"
 	"net/http"
 	"strings"
 	"testing"
@@ -26,7 +26,6 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"k8s.io/cli-runtime/pkg/genericclioptions"
-	"k8s.io/cli-runtime/pkg/genericiooptions"
 	restclient "k8s.io/client-go/rest"
 	"k8s.io/client-go/rest/fake"
 	cmdtesting "k8s.io/kubectl/pkg/cmd/testing"
@@ -46,13 +45,13 @@ func TestCreateDeployment(t *testing.T) {
 		Client: fake.CreateHTTPClient(func(req *http.Request) (*http.Response, error) {
 			return &http.Response{
 				StatusCode: http.StatusOK,
-				Body:       io.NopCloser(bytes.NewBuffer([]byte(fakeDiscovery))),
+				Body:       ioutil.NopCloser(bytes.NewBuffer([]byte(fakeDiscovery))),
 			}, nil
 		}),
 	}
 	tf.ClientConfigVal = &restclient.Config{}
 
-	ioStreams, _, buf, _ := genericiooptions.NewTestIOStreams()
+	ioStreams, _, buf, _ := genericclioptions.NewTestIOStreams()
 	cmd := NewCmdCreateDeployment(tf, ioStreams)
 	cmd.Flags().Set("dry-run", "client")
 	cmd.Flags().Set("output", "name")
@@ -77,13 +76,13 @@ func TestCreateDeploymentWithPort(t *testing.T) {
 		Client: fake.CreateHTTPClient(func(req *http.Request) (*http.Response, error) {
 			return &http.Response{
 				StatusCode: http.StatusOK,
-				Body:       io.NopCloser(bytes.NewBuffer([]byte(fakeDiscovery))),
+				Body:       ioutil.NopCloser(bytes.NewBuffer([]byte(fakeDiscovery))),
 			}, nil
 		}),
 	}
 	tf.ClientConfigVal = &restclient.Config{}
 
-	ioStreams, _, buf, _ := genericiooptions.NewTestIOStreams()
+	ioStreams, _, buf, _ := genericclioptions.NewTestIOStreams()
 	cmd := NewCmdCreateDeployment(tf, ioStreams)
 	cmd.Flags().Set("dry-run", "client")
 	cmd.Flags().Set("output", "yaml")
@@ -108,13 +107,13 @@ func TestCreateDeploymentWithReplicas(t *testing.T) {
 		Client: fake.CreateHTTPClient(func(req *http.Request) (*http.Response, error) {
 			return &http.Response{
 				StatusCode: http.StatusOK,
-				Body:       io.NopCloser(bytes.NewBuffer([]byte(fakeDiscovery))),
+				Body:       ioutil.NopCloser(bytes.NewBuffer([]byte(fakeDiscovery))),
 			}, nil
 		}),
 	}
 	tf.ClientConfigVal = &restclient.Config{}
 
-	ioStreams, _, buf, _ := genericiooptions.NewTestIOStreams()
+	ioStreams, _, buf, _ := genericclioptions.NewTestIOStreams()
 	cmd := NewCmdCreateDeployment(tf, ioStreams)
 	cmd.Flags().Set("dry-run", "client")
 	cmd.Flags().Set("output", "jsonpath={.spec.replicas}")
@@ -138,13 +137,13 @@ func TestCreateDeploymentNoImage(t *testing.T) {
 		Client: fake.CreateHTTPClient(func(req *http.Request) (*http.Response, error) {
 			return &http.Response{
 				StatusCode: http.StatusOK,
-				Body:       io.NopCloser(bytes.NewBuffer([]byte(fakeDiscovery))),
+				Body:       ioutil.NopCloser(bytes.NewBuffer([]byte(fakeDiscovery))),
 			}, nil
 		}),
 	}
 	tf.ClientConfigVal = &restclient.Config{}
 
-	ioStreams := genericiooptions.NewTestIOStreamsDiscard()
+	ioStreams := genericclioptions.NewTestIOStreamsDiscard()
 	cmd := NewCmdCreateDeployment(tf, ioStreams)
 	cmd.Flags().Set("output", "name")
 	options := &CreateDeploymentOptions{

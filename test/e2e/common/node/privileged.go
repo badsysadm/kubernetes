@@ -17,11 +17,9 @@ limitations under the License.
 package node
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/onsi/ginkgo/v2"
-	"github.com/onsi/gomega"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/kubernetes/test/e2e/framework"
@@ -44,7 +42,7 @@ type PrivilegedPodTestConfig struct {
 
 var _ = SIGDescribe("PrivilegedPod [NodeConformance]", func() {
 	f := framework.NewDefaultFramework("e2e-privileged-pod")
-	f.NamespacePodSecurityLevel = admissionapi.LevelPrivileged
+	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	config := &PrivilegedPodTestConfig{
 		f:                      f,
 		privilegedPod:          "privileged-pod",
@@ -52,10 +50,10 @@ var _ = SIGDescribe("PrivilegedPod [NodeConformance]", func() {
 		notPrivilegedContainer: "not-privileged-container",
 	}
 
-	ginkgo.It("should enable privileged commands [LinuxOnly]", func(ctx context.Context) {
+	ginkgo.It("should enable privileged commands [LinuxOnly]", func() {
 		// Windows does not support privileged containers.
 		ginkgo.By("Creating a pod with a privileged container")
-		config.createPods(ctx)
+		config.createPods()
 
 		ginkgo.By("Executing in the privileged container")
 		config.run(config.privilegedContainer, true)
@@ -82,7 +80,7 @@ func (c *PrivilegedPodTestConfig) run(containerName string, expectSuccess bool) 
 		framework.ExpectNoError(err,
 			fmt.Sprintf("could not remove dummy1 link: %v", err))
 	} else {
-		gomega.Expect(err).To(gomega.HaveOccurred(), msg)
+		framework.ExpectError(err, msg)
 	}
 }
 
@@ -116,7 +114,7 @@ func (c *PrivilegedPodTestConfig) createPodsSpec() *v1.Pod {
 	}
 }
 
-func (c *PrivilegedPodTestConfig) createPods(ctx context.Context) {
+func (c *PrivilegedPodTestConfig) createPods() {
 	podSpec := c.createPodsSpec()
-	c.pod = e2epod.NewPodClient(c.f).CreateSync(ctx, podSpec)
+	c.pod = e2epod.NewPodClient(c.f).CreateSync(podSpec)
 }

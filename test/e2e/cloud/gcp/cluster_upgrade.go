@@ -17,8 +17,6 @@ limitations under the License.
 package gcp
 
 import (
-	"context"
-
 	"k8s.io/kubernetes/test/e2e/cloud/gcp/common"
 	"k8s.io/kubernetes/test/e2e/framework"
 	"k8s.io/kubernetes/test/e2e/upgrades"
@@ -54,13 +52,13 @@ var upgradeTests = []upgrades.Test{
 
 var _ = SIGDescribe("Upgrade [Feature:Upgrade]", func() {
 	f := framework.NewDefaultFramework("cluster-upgrade")
-	f.NamespacePodSecurityLevel = admissionapi.LevelPrivileged
+	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	testFrameworks := upgrades.CreateUpgradeFrameworks(upgradeTests)
 
 	// Create the frameworks here because we can only create them
 	// in a "Describe".
 	ginkgo.Describe("master upgrade", func() {
-		ginkgo.It("should maintain a functioning cluster [Feature:MasterUpgrade]", func(ctx context.Context) {
+		ginkgo.It("should maintain a functioning cluster [Feature:MasterUpgrade]", func() {
 			upgCtx, err := common.GetUpgradeContext(f.ClientSet.Discovery())
 			framework.ExpectNoError(err)
 
@@ -72,12 +70,12 @@ var _ = SIGDescribe("Upgrade [Feature:Upgrade]", func() {
 			testSuite.TestCases = append(testSuite.TestCases, masterUpgradeTest)
 
 			upgradeFunc := common.ControlPlaneUpgradeFunc(f, upgCtx, masterUpgradeTest, nil)
-			upgrades.RunUpgradeSuite(ctx, upgCtx, upgradeTests, testFrameworks, testSuite, upgrades.MasterUpgrade, upgradeFunc)
+			upgrades.RunUpgradeSuite(upgCtx, upgradeTests, testFrameworks, testSuite, upgrades.MasterUpgrade, upgradeFunc)
 		})
 	})
 
 	ginkgo.Describe("cluster upgrade", func() {
-		ginkgo.It("should maintain a functioning cluster [Feature:ClusterUpgrade]", func(ctx context.Context) {
+		ginkgo.It("should maintain a functioning cluster [Feature:ClusterUpgrade]", func() {
 			upgCtx, err := common.GetUpgradeContext(f.ClientSet.Discovery())
 			framework.ExpectNoError(err)
 
@@ -86,18 +84,18 @@ var _ = SIGDescribe("Upgrade [Feature:Upgrade]", func() {
 			testSuite.TestCases = append(testSuite.TestCases, clusterUpgradeTest)
 
 			upgradeFunc := common.ClusterUpgradeFunc(f, upgCtx, clusterUpgradeTest, nil, nil)
-			upgrades.RunUpgradeSuite(ctx, upgCtx, upgradeTests, testFrameworks, testSuite, upgrades.ClusterUpgrade, upgradeFunc)
+			upgrades.RunUpgradeSuite(upgCtx, upgradeTests, testFrameworks, testSuite, upgrades.ClusterUpgrade, upgradeFunc)
 		})
 	})
 })
 
 var _ = SIGDescribe("Downgrade [Feature:Downgrade]", func() {
 	f := framework.NewDefaultFramework("cluster-downgrade")
-	f.NamespacePodSecurityLevel = admissionapi.LevelPrivileged
+	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	testFrameworks := upgrades.CreateUpgradeFrameworks(upgradeTests)
 
 	ginkgo.Describe("cluster downgrade", func() {
-		ginkgo.It("should maintain a functioning cluster [Feature:ClusterDowngrade]", func(ctx context.Context) {
+		ginkgo.It("should maintain a functioning cluster [Feature:ClusterDowngrade]", func() {
 			upgCtx, err := common.GetUpgradeContext(f.ClientSet.Discovery())
 			framework.ExpectNoError(err)
 
@@ -106,7 +104,7 @@ var _ = SIGDescribe("Downgrade [Feature:Downgrade]", func() {
 			testSuite.TestCases = append(testSuite.TestCases, clusterDowngradeTest)
 
 			upgradeFunc := common.ClusterDowngradeFunc(f, upgCtx, clusterDowngradeTest, nil, nil)
-			upgrades.RunUpgradeSuite(ctx, upgCtx, upgradeTests, testFrameworks, testSuite, upgrades.ClusterUpgrade, upgradeFunc)
+			upgrades.RunUpgradeSuite(upgCtx, upgradeTests, testFrameworks, testSuite, upgrades.ClusterUpgrade, upgradeFunc)
 		})
 	})
 })

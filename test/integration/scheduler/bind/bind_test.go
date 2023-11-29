@@ -28,7 +28,9 @@ import (
 // TestDefaultBinder tests the binding process in the scheduler.
 func TestDefaultBinder(t *testing.T) {
 	testCtx := testutil.InitTestSchedulerWithOptions(t, testutil.InitTestAPIServer(t, "", nil), 0)
-	testutil.SyncSchedulerInformerFactory(testCtx)
+	testutil.SyncInformerFactory(testCtx)
+	// Do not start scheduler routine.
+	defer testutil.CleanupTest(t, testCtx)
 
 	// Add a node.
 	node, err := testutil.CreateNode(testCtx.ClientSet, st.MakeNode().Name("testnode").Obj())
@@ -54,7 +56,7 @@ func TestDefaultBinder(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Failed to create pod: %v", err)
 			}
-			defer testutil.CleanupPods(testCtx.Ctx, testCtx.ClientSet, t, []*corev1.Pod{pod})
+			defer testutil.CleanupPods(testCtx.ClientSet, t, []*corev1.Pod{pod})
 
 			podCopy := pod.DeepCopy()
 			if tc.anotherUID {

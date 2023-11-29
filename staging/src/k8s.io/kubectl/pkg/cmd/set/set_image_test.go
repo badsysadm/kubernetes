@@ -18,7 +18,7 @@ package set
 
 import (
 	"fmt"
-	"io"
+	"io/ioutil"
 	"net/http"
 	"strings"
 	"testing"
@@ -35,7 +35,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
-	"k8s.io/cli-runtime/pkg/genericiooptions"
 	"k8s.io/cli-runtime/pkg/resource"
 	restclient "k8s.io/client-go/rest"
 	"k8s.io/client-go/rest/fake"
@@ -59,7 +58,7 @@ func TestImageLocal(t *testing.T) {
 
 	outputFormat := "name"
 
-	streams, _, buf, _ := genericiooptions.NewTestIOStreams()
+	streams, _, buf, _ := genericclioptions.NewTestIOStreams()
 	cmd := NewCmdImage(tf, streams)
 	cmd.SetOut(buf)
 	cmd.SetErr(buf)
@@ -172,7 +171,7 @@ func TestSetMultiResourcesImageLocal(t *testing.T) {
 
 	outputFormat := "name"
 
-	streams, _, buf, _ := genericiooptions.NewTestIOStreams()
+	streams, _, buf, _ := genericclioptions.NewTestIOStreams()
 	cmd := NewCmdImage(tf, streams)
 	cmd.SetOut(buf)
 	cmd.SetErr(buf)
@@ -637,7 +636,7 @@ func TestSetImageRemote(t *testing.T) {
 						if err != nil {
 							return nil, err
 						}
-						bytes, err := io.ReadAll(stream)
+						bytes, err := ioutil.ReadAll(stream)
 						if err != nil {
 							return nil, err
 						}
@@ -652,7 +651,7 @@ func TestSetImageRemote(t *testing.T) {
 
 			outputFormat := "yaml"
 
-			streams := genericiooptions.NewTestIOStreamsDiscard()
+			streams := genericclioptions.NewTestIOStreamsDiscard()
 			cmd := NewCmdImage(tf, streams)
 			cmd.Flags().Set("output", outputFormat)
 			opts := SetImageOptions{
@@ -749,7 +748,7 @@ func TestSetImageRemoteWithSpecificContainers(t *testing.T) {
 						if err != nil {
 							return nil, err
 						}
-						bytes, err := io.ReadAll(stream)
+						bytes, err := ioutil.ReadAll(stream)
 						if err != nil {
 							return nil, err
 						}
@@ -765,7 +764,7 @@ func TestSetImageRemoteWithSpecificContainers(t *testing.T) {
 
 			outputFormat := "yaml"
 
-			streams := genericiooptions.NewTestIOStreamsDiscard()
+			streams := genericclioptions.NewTestIOStreamsDiscard()
 			cmd := NewCmdImage(tf, streams)
 			cmd.Flags().Set("output", outputFormat)
 			opts := SetImageOptions{

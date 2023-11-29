@@ -32,20 +32,18 @@ import (
 
 type HostNetworkService interface {
 	getNetworkByName(name string) (*hnsNetworkInfo, error)
-	getAllEndpointsByNetwork(networkName string) (map[string]*endpointInfo, error)
-	getEndpointByID(id string) (*endpointInfo, error)
-	getEndpointByIpAddress(ip string, networkName string) (*endpointInfo, error)
-	getEndpointByName(id string) (*endpointInfo, error)
-	createEndpoint(ep *endpointInfo, networkName string) (*endpointInfo, error)
+	getAllEndpointsByNetwork(networkName string) (map[string]*endpointsInfo, error)
+	getEndpointByID(id string) (*endpointsInfo, error)
+	getEndpointByIpAddress(ip string, networkName string) (*endpointsInfo, error)
+	getEndpointByName(id string) (*endpointsInfo, error)
+	createEndpoint(ep *endpointsInfo, networkName string) (*endpointsInfo, error)
 	deleteEndpoint(hnsID string) error
-	getLoadBalancer(endpoints []endpointInfo, flags loadBalancerFlags, sourceVip string, vip string, protocol uint16, internalPort uint16, externalPort uint16, previousLoadBalancers map[loadBalancerIdentifier]*loadBalancerInfo) (*loadBalancerInfo, error)
+	getLoadBalancer(endpoints []endpointsInfo, flags loadBalancerFlags, sourceVip string, vip string, protocol uint16, internalPort uint16, externalPort uint16, previousLoadBalancers map[loadBalancerIdentifier]*loadBalancerInfo) (*loadBalancerInfo, error)
 	getAllLoadBalancers() (map[loadBalancerIdentifier]*loadBalancerInfo, error)
 	deleteLoadBalancer(hnsID string) error
 }
 
-type hns struct {
-	hcn HcnService
-}
+type hns struct{}
 
 var (
 	// LoadBalancerFlagsIPv6 enables IPV6.
@@ -55,7 +53,7 @@ var (
 )
 
 func (hns hns) getNetworkByName(name string) (*hnsNetworkInfo, error) {
-	hnsnetwork, err := hns.hcn.GetNetworkByName(name)
+	hnsnetwork, err := hcn.GetNetworkByName(name)
 	if err != nil {
 		klog.ErrorS(err, "Error getting network by name")
 		return nil, err
@@ -87,28 +85,22 @@ func (hns hns) getNetworkByName(name string) (*hnsNetworkInfo, error) {
 	}, nil
 }
 
-func (hns hns) getAllEndpointsByNetwork(networkName string) (map[string]*(endpointInfo), error) {
-	hcnnetwork, err := hns.hcn.GetNetworkByName(networkName)
+func (hns hns) getAllEndpointsByNetwork(networkName string) (map[string]*(endpointsInfo), error) {
+	hcnnetwork, err := hcn.GetNetworkByName(networkName)
 	if err != nil {
 		klog.ErrorS(err, "failed to get HNS network by name", "name", networkName)
 		return nil, err
 	}
-	endpoints, err := hns.hcn.ListEndpointsOfNetwork(hcnnetwork.Id)
+	endpoints, err := hcn.ListEndpointsOfNetwork(hcnnetwork.Id)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list endpoints: %w", err)
 	}
-	endpointInfos := make(map[string]*(endpointInfo))
+	endpointInfos := make(map[string]*(endpointsInfo))
 	for _, ep := range endpoints {
-
-		if len(ep.IpConfigurations) == 0 {
-			klog.V(3).InfoS("No IpConfigurations found in endpoint info of queried endpoints", "endpoint", ep)
-			continue
-		}
-
 		// Add to map with key endpoint ID or IP address
 		// Storing this is expensive in terms of memory, however there is a bug in Windows Server 2019 that can cause two endpoints to be created with the same IP address.
 		// TODO: Store by IP only and remove any lookups by endpoint ID.
-		endpointInfos[ep.Id] = &endpointInfo{
+		endpointInfos[ep.Id] = &endpointsInfo{
 			ip:         ep.IpConfigurations[0].IpAddress,
 			isLocal:    uint32(ep.Flags&hcn.EndpointFlagsRemoteEndpoint) == 0,
 			macAddress: ep.MacAddress,
@@ -127,7 +119,7 @@ func (hns hns) getAllEndpointsByNetwork(networkName string) (map[string]*(endpoi
 
 		// If ipFamilyPolicy is RequireDualStack or PreferDualStack, then there will be 2 IPS (iPV4 and IPV6)
 		// in the endpoint list
-		endpointDualstack := &endpointInfo{
+		endpointDualstack := &endpointsInfo{
 			ip:         ep.IpConfigurations[1].IpAddress,
 			isLocal:    uint32(ep.Flags&hcn.EndpointFlagsRemoteEndpoint) == 0,
 			macAddress: ep.MacAddress,
@@ -145,12 +137,12 @@ func (hns hns) getAllEndpointsByNetwork(networkName string) (map[string]*(endpoi
 	return endpointInfos, nil
 }
 
-func (hns hns) getEndpointByID(id string) (*endpointInfo, error) {
-	hnsendpoint, err := hns.hcn.GetEndpointByID(id)
+func (hns hns) getEndpointByID(id string) (*endpointsInfo, error) {
+	hnsendpoint, err := hcn.GetEndpointByID(id)
 	if err != nil {
 		return nil, err
 	}
-	return &endpointInfo{ //TODO: fill out PA
+	return &endpointsInfo{ //TODO: fill out PA
 		ip:         hnsendpoint.IpConfigurations[0].IpAddress,
 		isLocal:    uint32(hnsendpoint.Flags&hcn.EndpointFlagsRemoteEndpoint) == 0, //TODO: Change isLocal to isRemote
 		macAddress: hnsendpoint.MacAddress,
@@ -158,14 +150,14 @@ func (hns hns) getEndpointByID(id string) (*endpointInfo, error) {
 		hns:        hns,
 	}, nil
 }
-func (hns hns) getEndpointByIpAddress(ip string, networkName string) (*endpointInfo, error) {
-	hnsnetwork, err := hns.hcn.GetNetworkByName(networkName)
+func (hns hns) getEndpointByIpAddress(ip string, networkName string) (*endpointsInfo, error) {
+	hnsnetwork, err := hcn.GetNetworkByName(networkName)
 	if err != nil {
 		klog.ErrorS(err, "Error getting network by name")
 		return nil, err
 	}
 
-	endpoints, err := hns.hcn.ListEndpoints()
+	endpoints, err := hcn.ListEndpoints()
 	if err != nil {
 		return nil, fmt.Errorf("failed to list endpoints: %w", err)
 	}
@@ -179,7 +171,7 @@ func (hns hns) getEndpointByIpAddress(ip string, networkName string) (*endpointI
 			}
 		}
 		if equal && strings.EqualFold(endpoint.HostComputeNetwork, hnsnetwork.Id) {
-			return &endpointInfo{
+			return &endpointsInfo{
 				ip:         ip,
 				isLocal:    uint32(endpoint.Flags&hcn.EndpointFlagsRemoteEndpoint) == 0, //TODO: Change isLocal to isRemote
 				macAddress: endpoint.MacAddress,
@@ -190,12 +182,12 @@ func (hns hns) getEndpointByIpAddress(ip string, networkName string) (*endpointI
 	}
 	return nil, fmt.Errorf("Endpoint %v not found on network %s", ip, networkName)
 }
-func (hns hns) getEndpointByName(name string) (*endpointInfo, error) {
-	hnsendpoint, err := hns.hcn.GetEndpointByName(name)
+func (hns hns) getEndpointByName(name string) (*endpointsInfo, error) {
+	hnsendpoint, err := hcn.GetEndpointByName(name)
 	if err != nil {
 		return nil, err
 	}
-	return &endpointInfo{ //TODO: fill out PA
+	return &endpointsInfo{ //TODO: fill out PA
 		ip:         hnsendpoint.IpConfigurations[0].IpAddress,
 		isLocal:    uint32(hnsendpoint.Flags&hcn.EndpointFlagsRemoteEndpoint) == 0, //TODO: Change isLocal to isRemote
 		macAddress: hnsendpoint.MacAddress,
@@ -203,8 +195,8 @@ func (hns hns) getEndpointByName(name string) (*endpointInfo, error) {
 		hns:        hns,
 	}, nil
 }
-func (hns hns) createEndpoint(ep *endpointInfo, networkName string) (*endpointInfo, error) {
-	hnsNetwork, err := hns.hcn.GetNetworkByName(networkName)
+func (hns hns) createEndpoint(ep *endpointsInfo, networkName string) (*endpointsInfo, error) {
+	hnsNetwork, err := hcn.GetNetworkByName(networkName)
 	if err != nil {
 		return nil, err
 	}
@@ -241,17 +233,17 @@ func (hns hns) createEndpoint(ep *endpointInfo, networkName string) (*endpointIn
 			}
 			hnsEndpoint.Policies = append(hnsEndpoint.Policies, paPolicy)
 		}
-		createdEndpoint, err = hns.hcn.CreateRemoteEndpoint(hnsNetwork, hnsEndpoint)
+		createdEndpoint, err = hnsNetwork.CreateRemoteEndpoint(hnsEndpoint)
 		if err != nil {
 			return nil, err
 		}
 	} else {
-		createdEndpoint, err = hns.hcn.CreateEndpoint(hnsNetwork, hnsEndpoint)
+		createdEndpoint, err = hnsNetwork.CreateEndpoint(hnsEndpoint)
 		if err != nil {
 			return nil, err
 		}
 	}
-	return &endpointInfo{
+	return &endpointsInfo{
 		ip:              createdEndpoint.IpConfigurations[0].IpAddress,
 		isLocal:         uint32(createdEndpoint.Flags&hcn.EndpointFlagsRemoteEndpoint) == 0,
 		macAddress:      createdEndpoint.MacAddress,
@@ -261,11 +253,11 @@ func (hns hns) createEndpoint(ep *endpointInfo, networkName string) (*endpointIn
 	}, nil
 }
 func (hns hns) deleteEndpoint(hnsID string) error {
-	hnsendpoint, err := hns.hcn.GetEndpointByID(hnsID)
+	hnsendpoint, err := hcn.GetEndpointByID(hnsID)
 	if err != nil {
 		return err
 	}
-	err = hns.hcn.DeleteEndpoint(hnsendpoint)
+	err = hnsendpoint.Delete()
 	if err == nil {
 		klog.V(3).InfoS("Remote endpoint resource deleted", "hnsID", hnsID)
 	}
@@ -273,7 +265,7 @@ func (hns hns) deleteEndpoint(hnsID string) error {
 }
 
 // findLoadBalancerID will construct a id from the provided loadbalancer fields
-func findLoadBalancerID(endpoints []endpointInfo, vip string, protocol, internalPort, externalPort uint16) (loadBalancerIdentifier, error) {
+func findLoadBalancerID(endpoints []endpointsInfo, vip string, protocol, internalPort, externalPort uint16) (loadBalancerIdentifier, error) {
 	// Compute hash from backends (endpoint IDs)
 	hash, err := hashEndpoints(endpoints)
 	if err != nil {
@@ -287,7 +279,7 @@ func findLoadBalancerID(endpoints []endpointInfo, vip string, protocol, internal
 }
 
 func (hns hns) getAllLoadBalancers() (map[loadBalancerIdentifier]*loadBalancerInfo, error) {
-	lbs, err := hns.hcn.ListLoadBalancers()
+	lbs, err := hcn.ListLoadBalancers()
 	var id loadBalancerIdentifier
 	if err != nil {
 		return nil, err
@@ -315,7 +307,7 @@ func (hns hns) getAllLoadBalancers() (map[loadBalancerIdentifier]*loadBalancerIn
 	return loadBalancers, nil
 }
 
-func (hns hns) getLoadBalancer(endpoints []endpointInfo, flags loadBalancerFlags, sourceVip string, vip string, protocol uint16, internalPort uint16, externalPort uint16, previousLoadBalancers map[loadBalancerIdentifier]*loadBalancerInfo) (*loadBalancerInfo, error) {
+func (hns hns) getLoadBalancer(endpoints []endpointsInfo, flags loadBalancerFlags, sourceVip string, vip string, protocol uint16, internalPort uint16, externalPort uint16, previousLoadBalancers map[loadBalancerIdentifier]*loadBalancerInfo) (*loadBalancerInfo, error) {
 	var id loadBalancerIdentifier
 	vips := []string{}
 	// Compute hash from backends (endpoint IDs)
@@ -391,7 +383,7 @@ func (hns hns) getLoadBalancer(endpoints []endpointInfo, flags loadBalancerFlags
 		loadBalancer.HostComputeEndpoints = append(loadBalancer.HostComputeEndpoints, ep.hnsID)
 	}
 
-	lb, err := hns.hcn.CreateLoadBalancer(loadBalancer)
+	lb, err := loadBalancer.Create()
 
 	if err != nil {
 		return nil, err
@@ -407,24 +399,24 @@ func (hns hns) getLoadBalancer(endpoints []endpointInfo, flags loadBalancerFlags
 }
 
 func (hns hns) deleteLoadBalancer(hnsID string) error {
-	lb, err := hns.hcn.GetLoadBalancerByID(hnsID)
+	lb, err := hcn.GetLoadBalancerByID(hnsID)
 	if err != nil {
 		// Return silently
 		return nil
 	}
 
-	err = hns.hcn.DeleteLoadBalancer(lb)
+	err = lb.Delete()
 	if err != nil {
 		// There is a bug in Windows Server 2019, that can cause the delete call to fail sometimes. We retry one more time.
 		// TODO: The logic in syncProxyRules  should be rewritten in the future to better stage and handle a call like this failing using the policyApplied fields.
 		klog.V(1).ErrorS(err, "Error deleting Hns loadbalancer policy resource. Attempting one more time...", "loadBalancer", lb)
-		return hns.hcn.DeleteLoadBalancer(lb)
+		return lb.Delete()
 	}
 	return err
 }
 
 // Calculates a hash from the given endpoint IDs.
-func hashEndpoints[T string | endpointInfo](endpoints []T) (hash [20]byte, err error) {
+func hashEndpoints[T string | endpointsInfo](endpoints []T) (hash [20]byte, err error) {
 	var id string
 	// Recover in case something goes wrong. Return error and null byte array.
 	defer func() {
@@ -437,7 +429,7 @@ func hashEndpoints[T string | endpointInfo](endpoints []T) (hash [20]byte, err e
 	// Iterate over endpoints, compute hash
 	for _, ep := range endpoints {
 		switch x := any(ep).(type) {
-		case endpointInfo:
+		case endpointsInfo:
 			id = strings.ToUpper(x.hnsID)
 		case string:
 			id = x

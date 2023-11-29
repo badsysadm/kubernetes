@@ -104,17 +104,15 @@ func WriteToDisk(filename string, kubeconfig *clientcmdapi.Config) error {
 }
 
 // GetClusterFromKubeConfig returns the default Cluster of the specified KubeConfig
-func GetClusterFromKubeConfig(config *clientcmdapi.Config) (string, *clientcmdapi.Cluster) {
+func GetClusterFromKubeConfig(config *clientcmdapi.Config) *clientcmdapi.Cluster {
 	// If there is an unnamed cluster object, use it
 	if config.Clusters[""] != nil {
-		return "", config.Clusters[""]
+		return config.Clusters[""]
 	}
-
-	currentContext := config.Contexts[config.CurrentContext]
-	if currentContext != nil {
-		return currentContext.Cluster, config.Clusters[currentContext.Cluster]
+	if config.Contexts[config.CurrentContext] != nil {
+		return config.Clusters[config.Contexts[config.CurrentContext].Cluster]
 	}
-	return "", nil
+	return nil
 }
 
 // HasAuthenticationCredentials returns true if the current user has valid authentication credentials for

@@ -106,10 +106,11 @@ type Route struct {
 }
 
 func (f *Cloud) addCall(desc string) {
-	time.Sleep(f.RequestDelay)
-
 	f.addCallLock.Lock()
 	defer f.addCallLock.Unlock()
+
+	time.Sleep(f.RequestDelay)
+
 	f.Calls = append(f.Calls, desc)
 }
 
@@ -312,11 +313,6 @@ func (f *Cloud) InstanceExistsByProviderID(ctx context.Context, providerID strin
 // InstanceShutdownByProviderID returns true if the instances is in safe state to detach volumes
 func (f *Cloud) InstanceShutdownByProviderID(ctx context.Context, providerID string) (bool, error) {
 	f.addCall("instance-shutdown-by-provider-id")
-
-	if providerID == "" {
-		return false, fmt.Errorf("cannot shutdown instance with empty providerID")
-	}
-
 	return f.NodeShutdown, f.ErrShutdownByProviderID
 }
 

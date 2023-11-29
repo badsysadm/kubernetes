@@ -37,12 +37,8 @@ type Conntracker interface {
 	SetMax(max int) error
 	// SetTCPEstablishedTimeout adjusts nf_conntrack_tcp_timeout_established.
 	SetTCPEstablishedTimeout(seconds int) error
-	// SetTCPCloseWaitTimeout adjusts nf_conntrack_tcp_timeout_close_wait.
+	// SetTCPCloseWaitTimeout nf_conntrack_tcp_timeout_close_wait.
 	SetTCPCloseWaitTimeout(seconds int) error
-	// SetUDPTimeout adjusts nf_conntrack_udp_timeout.
-	SetUDPTimeout(seconds int) error
-	// SetUDPStreamTimeout adjusts nf_conntrack_udp_timeout_stream.
-	SetUDPStreamTimeout(seconds int) error
 }
 
 type realConntracker struct{}
@@ -53,7 +49,7 @@ func (rct realConntracker) SetMax(max int) error {
 	if err := rct.setIntSysCtl("nf_conntrack_max", max); err != nil {
 		return err
 	}
-	klog.InfoS("Setting nf_conntrack_max", "nfConntrackMax", max)
+	klog.InfoS("Setting nf_conntrack_max", "nf_conntrack_max", max)
 
 	// Linux does not support writing to /sys/module/nf_conntrack/parameters/hashsize
 	// when the writer process is not in the initial network namespace
@@ -84,7 +80,7 @@ func (rct realConntracker) SetMax(max int) error {
 		return errReadOnlySysFS
 	}
 	// TODO: generify this and sysctl to a new sysfs.WriteInt()
-	klog.InfoS("Setting conntrack hashsize", "conntrackHashsize", max/4)
+	klog.InfoS("Setting conntrack hashsize", "conntrack hashsize", max/4)
 	return writeIntStringFile("/sys/module/nf_conntrack/parameters/hashsize", max/4)
 }
 
@@ -96,19 +92,11 @@ func (rct realConntracker) SetTCPCloseWaitTimeout(seconds int) error {
 	return rct.setIntSysCtl("nf_conntrack_tcp_timeout_close_wait", seconds)
 }
 
-func (rct realConntracker) SetUDPTimeout(seconds int) error {
-	return rct.setIntSysCtl("nf_conntrack_udp_timeout", seconds)
-}
-
-func (rct realConntracker) SetUDPStreamTimeout(seconds int) error {
-	return rct.setIntSysCtl("nf_conntrack_udp_timeout_stream", seconds)
-}
-
 func (realConntracker) setIntSysCtl(name string, value int) error {
 	entry := "net/netfilter/" + name
 
 	sys := sysctl.New()
-	if val, _ := sys.GetSysctl(entry); val != value {
+	if val, _ := sys.GetSysctl(entry); val != value && val < value {
 		klog.InfoS("Set sysctl", "entry", entry, "value", value)
 		if err := sys.SetSysctl(entry, value); err != nil {
 			return err

@@ -21,7 +21,6 @@ package cadvisor
 
 import (
 	"reflect"
-	"strings"
 	"testing"
 
 	"github.com/google/cadvisor/container/crio"
@@ -55,5 +54,5 @@ func TestCapacityFromMachineInfoWithHugePagesEnable(t *testing.T) {
 }
 
 func TestCrioSocket(t *testing.T) {
-	assert.True(t, strings.HasSuffix(crio.CrioSocket, CrioSocketSuffix), "CrioSocketSuffix in this package must be a suffix of the one in github.com/google/cadvisor/container/crio/client.go")
+	assert.EqualValues(t, CrioSocket, crio.CrioSocket, "CrioSocket in this package must equal the one in github.com/google/cadvisor/container/crio/client.go")
 }

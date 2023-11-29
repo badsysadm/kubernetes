@@ -17,11 +17,12 @@ limitations under the License.
 package storage
 
 import (
-	"k8s.io/kubernetes/test/e2e/framework"
 	"k8s.io/kubernetes/test/e2e/storage/drivers"
 	storageframework "k8s.io/kubernetes/test/e2e/storage/framework"
 	"k8s.io/kubernetes/test/e2e/storage/testsuites"
 	"k8s.io/kubernetes/test/e2e/storage/utils"
+
+	"github.com/onsi/ginkgo/v2"
 )
 
 // List of testDrivers to be executed in below loop
@@ -36,10 +37,8 @@ var _ = utils.SIGDescribe("CSI Volumes", func() {
 	for _, initDriver := range csiTestDrivers {
 		curDriver := initDriver()
 
-		args := storageframework.GetDriverNameWithFeatureTags(curDriver)
-		args = append(args, func() {
+		ginkgo.Context(storageframework.GetDriverNameWithFeatureTags(curDriver), func() {
 			storageframework.DefineTestSuites(curDriver, testsuites.CSISuites)
 		})
-		framework.Context(args...)
 	}
 })

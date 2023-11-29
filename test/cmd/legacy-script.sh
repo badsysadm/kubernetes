@@ -29,7 +29,6 @@ KUBE_ROOT=$(dirname "${BASH_SOURCE[0]}")/../..
 # source "${KUBE_ROOT}/hack/lib/test.sh"
 source "${KUBE_ROOT}/test/cmd/apply.sh"
 source "${KUBE_ROOT}/test/cmd/apps.sh"
-source "${KUBE_ROOT}/test/cmd/auth_whoami.sh"
 source "${KUBE_ROOT}/test/cmd/authentication.sh"
 source "${KUBE_ROOT}/test/cmd/authorization.sh"
 source "${KUBE_ROOT}/test/cmd/batch.sh"
@@ -46,7 +45,6 @@ source "${KUBE_ROOT}/test/cmd/events.sh"
 source "${KUBE_ROOT}/test/cmd/exec.sh"
 source "${KUBE_ROOT}/test/cmd/generic-resources.sh"
 source "${KUBE_ROOT}/test/cmd/get.sh"
-source "${KUBE_ROOT}/test/cmd/help.sh"
 source "${KUBE_ROOT}/test/cmd/kubeconfig.sh"
 source "${KUBE_ROOT}/test/cmd/node-management.sh"
 source "${KUBE_ROOT}/test/cmd/plugins.sh"
@@ -99,7 +97,6 @@ replicasets="replicasets"
 replicationcontrollers="replicationcontrollers"
 roles="roles"
 secrets="secrets"
-selfsubjectreviews="selfsubjectreviews"
 serviceaccounts="serviceaccounts"
 services="services"
 statefulsets="statefulsets"
@@ -506,25 +503,7 @@ runTests() {
   # Assert short name     #
   #########################
 
-  if kube::test::if_supports_resource "${customresourcedefinitions}" && kube::test::if_supports_resource "${pods}" && kube::test::if_supports_resource "${configmaps}" ; then
-    record_command run_assert_short_name_tests
-  fi
-
-  #########################
-  # Assert singular name  #
-  #########################
-
-  if kube::test::if_supports_resource "${customresourcedefinitions}" && kube::test::if_supports_resource "${pods}" ; then
-    record_command run_assert_singular_name_tests
-  fi
-
-  #########################
-  # Ambiguous short name  #
-  #########################
-
-  if kube::test::if_supports_resource "${customresourcedefinitions}" ; then
-    record_command run_ambiguous_shortname_tests
-  fi
+  record_command run_assert_short_name_tests
 
   #########################
   # Assert categories     #
@@ -576,12 +555,6 @@ runTests() {
     record_command run_kubectl_get_tests
   fi
 
-  ################
-  # Kubectl help #
-  ################
-
-  record_command run_kubectl_help_tests
-
   ##################
   # Kubectl events #
   ##################
@@ -624,13 +597,6 @@ runTests() {
   ######################
   if kube::test::if_supports_resource "${configmaps}" ; then
     record_command run_kubectl_delete_allnamespaces_tests
-  fi
-
-  ######################
-  # Delete --interactive   #
-  ######################
-  if kube::test::if_supports_resource "${configmaps}" ; then
-    record_command run_kubectl_delete_interactive_tests
   fi
 
   ##################
@@ -833,10 +799,6 @@ runTests() {
   record_command run_exec_credentials_tests
   record_command run_exec_credentials_interactive_tests
 
-  if kube::test::if_supports_resource "${selfsubjectreviews}" ; then
-    record_command run_kubectl_auth_whoami_tests
-  fi
-
   ########################
   # authorization.k8s.io #
   ########################
@@ -915,8 +877,6 @@ runTests() {
 
     kubectl delete "${kube_flags[@]}" rolebindings,role,clusterroles,clusterrolebindings -n some-other-random -l test-cmd=auth
   fi
-
-
 
   #####################
   # Retrieve multiple #
@@ -1034,17 +994,9 @@ runTests() {
   ####################
   if kube::test::if_supports_resource "${pods}" ; then
     record_command run_kubectl_debug_pod_tests
-    record_command run_kubectl_debug_general_tests
-    record_command run_kubectl_debug_baseline_tests
-    record_command run_kubectl_debug_restricted_tests
-    record_command run_kubectl_debug_netadmin_tests
   fi
   if kube::test::if_supports_resource "${nodes}" ; then
     record_command run_kubectl_debug_node_tests
-    record_command run_kubectl_debug_general_node_tests
-    record_command run_kubectl_debug_baseline_node_tests
-    record_command run_kubectl_debug_restricted_node_tests
-    record_command run_kubectl_debug_netadmin_node_tests
   fi
 
   cleanup_tests

@@ -31,7 +31,7 @@ import (
 	"github.com/prometheus/common/expfmt"
 	"github.com/prometheus/common/model"
 
-	flowcontrol "k8s.io/api/flowcontrol/v1"
+	flowcontrol "k8s.io/api/flowcontrol/v1beta3"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/apiserver/pkg/util/apihelpers"
@@ -40,7 +40,6 @@ import (
 	clientsideflowcontrol "k8s.io/client-go/util/flowcontrol"
 	"k8s.io/kubernetes/test/e2e/framework"
 	admissionapi "k8s.io/pod-security-admission/api"
-	"k8s.io/utils/ptr"
 )
 
 const (
@@ -54,22 +53,24 @@ var (
 
 var _ = SIGDescribe("API priority and fairness", func() {
 	f := framework.NewDefaultFramework("apf")
-	f.NamespacePodSecurityLevel = admissionapi.LevelPrivileged
+	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 
-	ginkgo.It("should ensure that requests can be classified by adding FlowSchema and PriorityLevelConfiguration", func(ctx context.Context) {
+	ginkgo.It("should ensure that requests can be classified by adding FlowSchema and PriorityLevelConfiguration", func() {
 		testingFlowSchemaName := "e2e-testing-flowschema"
 		testingPriorityLevelName := "e2e-testing-prioritylevel"
 		matchingUsername := "noxu"
 		nonMatchingUsername := "foo"
 
 		ginkgo.By("creating a testing PriorityLevelConfiguration object")
-		createdPriorityLevel := createPriorityLevel(ctx, f, testingPriorityLevelName, 1)
+		createdPriorityLevel, cleanup := createPriorityLevel(f, testingPriorityLevelName, 1)
+		defer cleanup()
 
 		ginkgo.By("creating a testing FlowSchema object")
-		createdFlowSchema := createFlowSchema(ctx, f, testingFlowSchemaName, 1000, testingPriorityLevelName, []string{matchingUsername})
+		createdFlowSchema, cleanup := createFlowSchema(f, testingFlowSchemaName, 1000, testingPriorityLevelName, []string{matchingUsername})
+		defer cleanup()
 
 		ginkgo.By("waiting for testing FlowSchema and PriorityLevelConfiguration to reach steady state")
-		waitForSteadyState(ctx, f, testingFlowSchemaName, testingPriorityLevelName)
+		waitForSteadyState(f, testingFlowSchemaName, testingPriorityLevelName)
 
 		var response *http.Response
 		ginkgo.By("response headers should contain the UID of the appropriate FlowSchema and PriorityLevelConfiguration for a matching user")
@@ -96,7 +97,7 @@ var _ = SIGDescribe("API priority and fairness", func() {
 	// clients making requests at different rates, we test to make sure that the
 	// higher QPS client cannot drown out the other one despite having higher
 	// priority.
-	ginkgo.It("should ensure that requests can't be drowned out (priority)", func(ctx context.Context) {
+	ginkgo.It("should ensure that requests can't be drowned out (priority)", func() {
 		// See https://github.com/kubernetes/kubernetes/issues/96710
 		ginkgo.Skip("skipping test until flakiness is resolved")
 
@@ -131,19 +132,21 @@ var _ = SIGDescribe("API priority and fairness", func() {
 		for i := range clients {
 			clients[i].priorityLevelName = fmt.Sprintf("%s-%s", priorityLevelNamePrefix, clients[i].username)
 			framework.Logf("creating PriorityLevel %q", clients[i].priorityLevelName)
-			createPriorityLevel(ctx, f, clients[i].priorityLevelName, 1)
+			_, cleanup := createPriorityLevel(f, clients[i].priorityLevelName, 1)
+			defer cleanup()
 
 			clients[i].flowSchemaName = fmt.Sprintf("%s-%s", flowSchemaNamePrefix, clients[i].username)
 			framework.Logf("creating FlowSchema %q", clients[i].flowSchemaName)
-			createFlowSchema(ctx, f, clients[i].flowSchemaName, clients[i].matchingPrecedence, clients[i].priorityLevelName, []string{clients[i].username})
+			_, cleanup = createFlowSchema(f, clients[i].flowSchemaName, clients[i].matchingPrecedence, clients[i].priorityLevelName, []string{clients[i].username})
+			defer cleanup()
 
 			ginkgo.By("waiting for testing FlowSchema and PriorityLevelConfiguration to reach steady state")
-			waitForSteadyState(ctx, f, clients[i].flowSchemaName, clients[i].priorityLevelName)
+			waitForSteadyState(f, clients[i].flowSchemaName, clients[i].priorityLevelName)
 		}
 
 		ginkgo.By("getting request concurrency from metrics")
 		for i := range clients {
-			realConcurrency, err := getPriorityLevelNominalConcurrency(ctx, f.ClientSet, clients[i].priorityLevelName)
+			realConcurrency, err := getPriorityLevelNominalConcurrency(f.ClientSet, clients[i].priorityLevelName)
 			framework.ExpectNoError(err)
 			clients[i].concurrency = int32(float64(realConcurrency) * clients[i].concurrencyMultiplier)
 			if clients[i].concurrency < 1 {
@@ -181,7 +184,7 @@ var _ = SIGDescribe("API priority and fairness", func() {
 	// and priority level. We expect APF's "ByUser" flow distinguisher to isolate
 	// the two clients and not allow one client to drown out the other despite
 	// having a higher QPS.
-	ginkgo.It("should ensure that requests can't be drowned out (fairness)", func(ctx context.Context) {
+	ginkgo.It("should ensure that requests can't be drowned out (fairness)", func() {
 		// See https://github.com/kubernetes/kubernetes/issues/96710
 		ginkgo.Skip("skipping test until flakiness is resolved")
 
@@ -190,15 +193,17 @@ var _ = SIGDescribe("API priority and fairness", func() {
 		loadDuration := 10 * time.Second
 
 		framework.Logf("creating PriorityLevel %q", priorityLevelName)
-		createPriorityLevel(ctx, f, priorityLevelName, 1)
+		_, cleanup := createPriorityLevel(f, priorityLevelName, 1)
+		defer cleanup()
 
 		highQPSClientName := "highqps-" + f.UniqueName
 		lowQPSClientName := "lowqps-" + f.UniqueName
 		framework.Logf("creating FlowSchema %q", flowSchemaName)
-		createFlowSchema(ctx, f, flowSchemaName, 1000, priorityLevelName, []string{highQPSClientName, lowQPSClientName})
+		_, cleanup = createFlowSchema(f, flowSchemaName, 1000, priorityLevelName, []string{highQPSClientName, lowQPSClientName})
+		defer cleanup()
 
 		ginkgo.By("waiting for testing flow schema and priority level to reach steady state")
-		waitForSteadyState(ctx, f, flowSchemaName, priorityLevelName)
+		waitForSteadyState(f, flowSchemaName, priorityLevelName)
 
 		type client struct {
 			username                    string
@@ -214,7 +219,7 @@ var _ = SIGDescribe("API priority and fairness", func() {
 		}
 
 		framework.Logf("getting real concurrency")
-		realConcurrency, err := getPriorityLevelNominalConcurrency(ctx, f.ClientSet, priorityLevelName)
+		realConcurrency, err := getPriorityLevelNominalConcurrency(f.ClientSet, priorityLevelName)
 		framework.ExpectNoError(err)
 		for i := range clients {
 			clients[i].concurrency = int32(float64(realConcurrency) * clients[i].concurrencyMultiplier)
@@ -251,9 +256,9 @@ var _ = SIGDescribe("API priority and fairness", func() {
 
 // createPriorityLevel creates a priority level with the provided assured
 // concurrency share.
-func createPriorityLevel(ctx context.Context, f *framework.Framework, priorityLevelName string, nominalConcurrencyShares int32) *flowcontrol.PriorityLevelConfiguration {
-	createdPriorityLevel, err := f.ClientSet.FlowcontrolV1().PriorityLevelConfigurations().Create(
-		ctx,
+func createPriorityLevel(f *framework.Framework, priorityLevelName string, nominalConcurrencyShares int32) (*flowcontrol.PriorityLevelConfiguration, func()) {
+	createdPriorityLevel, err := f.ClientSet.FlowcontrolV1beta3().PriorityLevelConfigurations().Create(
+		context.TODO(),
 		&flowcontrol.PriorityLevelConfiguration{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: priorityLevelName,
@@ -261,7 +266,7 @@ func createPriorityLevel(ctx context.Context, f *framework.Framework, priorityLe
 			Spec: flowcontrol.PriorityLevelConfigurationSpec{
 				Type: flowcontrol.PriorityLevelEnablementLimited,
 				Limited: &flowcontrol.LimitedPriorityLevelConfiguration{
-					NominalConcurrencyShares: ptr.To(nominalConcurrencyShares),
+					NominalConcurrencyShares: nominalConcurrencyShares,
 					LimitResponse: flowcontrol.LimitResponse{
 						Type: flowcontrol.LimitResponseTypeReject,
 					},
@@ -270,13 +275,14 @@ func createPriorityLevel(ctx context.Context, f *framework.Framework, priorityLe
 		},
 		metav1.CreateOptions{})
 	framework.ExpectNoError(err)
-	ginkgo.DeferCleanup(f.ClientSet.FlowcontrolV1().PriorityLevelConfigurations().Delete, priorityLevelName, metav1.DeleteOptions{})
-	return createdPriorityLevel
+	return createdPriorityLevel, func() {
+		framework.ExpectNoError(f.ClientSet.FlowcontrolV1beta3().PriorityLevelConfigurations().Delete(context.TODO(), priorityLevelName, metav1.DeleteOptions{}))
+	}
 }
 
-func getPriorityLevelNominalConcurrency(ctx context.Context, c clientset.Interface, priorityLevelName string) (int32, error) {
+func getPriorityLevelNominalConcurrency(c clientset.Interface, priorityLevelName string) (int32, error) {
 	req := c.CoreV1().RESTClient().Get().AbsPath("/metrics")
-	resp, err := req.DoRaw(ctx)
+	resp, err := req.DoRaw(context.TODO())
 	if err != nil {
 		return 0, fmt.Errorf("error requesting metrics; request=%#+v, request.URL()=%s: %w", req, req.URL(), err)
 	}
@@ -308,7 +314,7 @@ func getPriorityLevelNominalConcurrency(ctx context.Context, c clientset.Interfa
 
 // createFlowSchema creates a flow schema referring to a particular priority
 // level and matching the username provided.
-func createFlowSchema(ctx context.Context, f *framework.Framework, flowSchemaName string, matchingPrecedence int32, priorityLevelName string, matchingUsernames []string) *flowcontrol.FlowSchema {
+func createFlowSchema(f *framework.Framework, flowSchemaName string, matchingPrecedence int32, priorityLevelName string, matchingUsernames []string) (*flowcontrol.FlowSchema, func()) {
 	var subjects []flowcontrol.Subject
 	for _, matchingUsername := range matchingUsernames {
 		subjects = append(subjects, flowcontrol.Subject{
@@ -319,8 +325,8 @@ func createFlowSchema(ctx context.Context, f *framework.Framework, flowSchemaNam
 		})
 	}
 
-	createdFlowSchema, err := f.ClientSet.FlowcontrolV1().FlowSchemas().Create(
-		ctx,
+	createdFlowSchema, err := f.ClientSet.FlowcontrolV1beta3().FlowSchemas().Create(
+		context.TODO(),
 		&flowcontrol.FlowSchema{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: flowSchemaName,
@@ -348,17 +354,18 @@ func createFlowSchema(ctx context.Context, f *framework.Framework, flowSchemaNam
 		},
 		metav1.CreateOptions{})
 	framework.ExpectNoError(err)
-	ginkgo.DeferCleanup(f.ClientSet.FlowcontrolV1().FlowSchemas().Delete, flowSchemaName, metav1.DeleteOptions{})
-	return createdFlowSchema
+	return createdFlowSchema, func() {
+		framework.ExpectNoError(f.ClientSet.FlowcontrolV1beta3().FlowSchemas().Delete(context.TODO(), flowSchemaName, metav1.DeleteOptions{}))
+	}
 }
 
 // waitForSteadyState repeatedly polls the API server to check if the newly
 // created flow schema and priority level have been seen by the APF controller
 // by checking: (1) the dangling priority level reference condition in the flow
 // schema status, and (2) metrics. The function times out after 30 seconds.
-func waitForSteadyState(ctx context.Context, f *framework.Framework, flowSchemaName string, priorityLevelName string) {
-	framework.ExpectNoError(wait.PollWithContext(ctx, time.Second, 30*time.Second, func(ctx context.Context) (bool, error) {
-		fs, err := f.ClientSet.FlowcontrolV1().FlowSchemas().Get(ctx, flowSchemaName, metav1.GetOptions{})
+func waitForSteadyState(f *framework.Framework, flowSchemaName string, priorityLevelName string) {
+	framework.ExpectNoError(wait.Poll(time.Second, 30*time.Second, func() (bool, error) {
+		fs, err := f.ClientSet.FlowcontrolV1beta3().FlowSchemas().Get(context.TODO(), flowSchemaName, metav1.GetOptions{})
 		if err != nil {
 			return false, err
 		}
@@ -370,7 +377,7 @@ func waitForSteadyState(ctx context.Context, f *framework.Framework, flowSchemaN
 			// hasn't been achieved.
 			return false, nil
 		}
-		_, err = getPriorityLevelNominalConcurrency(ctx, f.ClientSet, priorityLevelName)
+		_, err = getPriorityLevelNominalConcurrency(f.ClientSet, priorityLevelName)
 		if err != nil {
 			if err == errPriorityLevelNotFound {
 				return false, nil

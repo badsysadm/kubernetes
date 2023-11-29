@@ -35,14 +35,14 @@ const (
 )
 
 var (
-	alphaOptions = sets.New[string](
+	alphaOptions = sets.NewString(
 		DistributeCPUsAcrossNUMAOption,
 		AlignBySocketOption,
 	)
-	betaOptions = sets.New[string](
+	betaOptions = sets.NewString(
 		FullPCPUsOnlyOption,
 	)
-	stableOptions = sets.New[string]()
+	stableOptions = sets.NewString()
 )
 
 // CheckPolicyOptionAvailable verifies if the given option can be used depending on the Feature Gate Settings.

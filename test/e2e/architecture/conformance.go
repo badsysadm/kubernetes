@@ -17,7 +17,6 @@ limitations under the License.
 package architecture
 
 import (
-	"context"
 	"time"
 
 	"github.com/onsi/ginkgo/v2"
@@ -29,17 +28,17 @@ import (
 
 var _ = SIGDescribe("Conformance Tests", func() {
 	f := framework.NewDefaultFramework("conformance-tests")
-	f.NamespacePodSecurityLevel = admissionapi.LevelPrivileged
+	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 
 	/*
 		Release: v1.23
 		Testname: Conformance tests minimum number of nodes.
 		Description: Conformance tests requires at least two untainted nodes where pods can be scheduled.
 	*/
-	framework.ConformanceIt("should have at least two untainted nodes", func(ctx context.Context) {
+	framework.ConformanceIt("should have at least two untainted nodes", func() {
 		ginkgo.By("Getting node addresses")
-		framework.ExpectNoError(e2enode.WaitForAllNodesSchedulable(ctx, f.ClientSet, 10*time.Minute))
-		nodeList, err := e2enode.GetReadySchedulableNodes(ctx, f.ClientSet)
+		framework.ExpectNoError(e2enode.WaitForAllNodesSchedulable(f.ClientSet, 10*time.Minute))
+		nodeList, err := e2enode.GetReadySchedulableNodes(f.ClientSet)
 		framework.ExpectNoError(err)
 		if len(nodeList.Items) < 2 {
 			framework.Failf("Conformance requires at least two nodes")

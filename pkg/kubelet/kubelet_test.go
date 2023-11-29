@@ -48,15 +48,12 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
-	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	"k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/flowcontrol"
-	featuregatetesting "k8s.io/component-base/featuregate/testing"
 	internalapi "k8s.io/cri-api/pkg/apis"
 	runtimeapi "k8s.io/cri-api/pkg/apis/runtime/v1"
 	"k8s.io/klog/v2/ktesting"
-	"k8s.io/kubernetes/pkg/features"
 	kubeletconfiginternal "k8s.io/kubernetes/pkg/kubelet/apis/config"
 	cadvisortest "k8s.io/kubernetes/pkg/kubelet/cadvisor/testing"
 	"k8s.io/kubernetes/pkg/kubelet/cm"
@@ -83,7 +80,6 @@ import (
 	serverstats "k8s.io/kubernetes/pkg/kubelet/server/stats"
 	"k8s.io/kubernetes/pkg/kubelet/stats"
 	"k8s.io/kubernetes/pkg/kubelet/status"
-	"k8s.io/kubernetes/pkg/kubelet/status/state"
 	statustest "k8s.io/kubernetes/pkg/kubelet/status/testing"
 	"k8s.io/kubernetes/pkg/kubelet/token"
 	kubetypes "k8s.io/kubernetes/pkg/kubelet/types"
@@ -93,8 +89,10 @@ import (
 	schedulerframework "k8s.io/kubernetes/pkg/scheduler/framework"
 	"k8s.io/kubernetes/pkg/util/oom"
 	"k8s.io/kubernetes/pkg/volume"
+	"k8s.io/kubernetes/pkg/volume/awsebs"
+	"k8s.io/kubernetes/pkg/volume/azuredd"
+	"k8s.io/kubernetes/pkg/volume/gcepd"
 	_ "k8s.io/kubernetes/pkg/volume/hostpath"
-	volumesecret "k8s.io/kubernetes/pkg/volume/secret"
 	volumetest "k8s.io/kubernetes/pkg/volume/testing"
 	"k8s.io/kubernetes/pkg/volume/util"
 	"k8s.io/kubernetes/pkg/volume/util/hostutil"
@@ -110,7 +108,6 @@ func init() {
 const (
 	testKubeletHostname = "127.0.0.1"
 	testKubeletHostIP   = "127.0.0.1"
-	testKubeletHostIPv6 = "::1"
 
 	// TODO(harry) any global place for these two?
 	// Reasonable size range of all container images. 90%ile of images on dockerhub drops into this range.
@@ -211,6 +208,7 @@ func newTestKubeletWithImageList(
 		t.Fatalf("can't mkdir(%q): %v", kubelet.rootDirectory, err)
 	}
 	kubelet.sourcesReady = config.NewSourcesReady(func(_ sets.String) bool { return true })
+	kubelet.masterServiceNamespace = metav1.NamespaceDefault
 	kubelet.serviceLister = testServiceLister{}
 	kubelet.serviceHasSynced = func() bool { return true }
 	kubelet.nodeHasSynced = func() bool { return true }
@@ -234,10 +232,6 @@ func newTestKubeletWithImageList(
 							Type:    v1.NodeInternalIP,
 							Address: testKubeletHostIP,
 						},
-						{
-							Type:    v1.NodeInternalIP,
-							Address: testKubeletHostIPv6,
-						},
 					},
 					VolumesAttached: []v1.AttachedVolume{
 						{
@@ -258,25 +252,22 @@ func newTestKubeletWithImageList(
 	kubelet.cadvisor = &cadvisortest.Fake{}
 	machineInfo, _ := kubelet.cadvisor.MachineInfo()
 	kubelet.setCachedMachineInfo(machineInfo)
-	kubelet.tracer = oteltrace.NewNoopTracerProvider().Tracer("")
 
 	fakeMirrorClient := podtest.NewFakeMirrorClient()
 	secretManager := secret.NewSimpleSecretManager(kubelet.kubeClient)
 	kubelet.secretManager = secretManager
 	configMapManager := configmap.NewSimpleConfigMapManager(kubelet.kubeClient)
 	kubelet.configMapManager = configMapManager
-	kubelet.mirrorPodClient = fakeMirrorClient
-	kubelet.podManager = kubepod.NewBasicPodManager()
+	kubelet.podManager = kubepod.NewBasicPodManager(fakeMirrorClient, kubelet.secretManager, kubelet.configMapManager)
 	podStartupLatencyTracker := kubeletutil.NewPodStartupLatencyTracker()
-	kubelet.statusManager = status.NewManager(fakeKubeClient, kubelet.podManager, &statustest.FakePodDeletionSafetyProvider{}, podStartupLatencyTracker, kubelet.getRootDir())
-	kubelet.nodeStartupLatencyTracker = kubeletutil.NewNodeStartupLatencyTracker()
+	kubelet.statusManager = status.NewManager(fakeKubeClient, kubelet.podManager, &statustest.FakePodDeletionSafetyProvider{}, podStartupLatencyTracker)
 
 	kubelet.containerRuntime = fakeRuntime
 	kubelet.runtimeCache = containertest.NewFakeRuntimeCache(kubelet.containerRuntime)
 	kubelet.reasonCache = NewReasonCache()
 	kubelet.podCache = containertest.NewFakeCache(kubelet.containerRuntime)
 	kubelet.podWorkers = &fakePodWorkers{
-		syncPodFn: kubelet.SyncPod,
+		syncPodFn: kubelet.syncPod,
 		cache:     kubelet.podCache,
 		t:         t,
 	}
@@ -313,7 +304,7 @@ func newTestKubeletWithImageList(
 		HighThresholdPercent: 90,
 		LowThresholdPercent:  80,
 	}
-	imageGCManager, err := images.NewImageGCManager(fakeRuntime, kubelet.StatsProvider, fakeRecorder, fakeNodeRef, fakeImageGCPolicy, oteltrace.NewNoopTracerProvider())
+	imageGCManager, err := images.NewImageGCManager(fakeRuntime, kubelet.StatsProvider, fakeRecorder, fakeNodeRef, fakeImageGCPolicy, "")
 	assert.NoError(t, err)
 	kubelet.imageManager = &fakeImageGCManager{
 		fakeImageService: fakeRuntime,
@@ -346,7 +337,7 @@ func newTestKubeletWithImageList(
 	}
 	// setup eviction manager
 	evictionManager, evictionAdmitHandler := eviction.NewManager(kubelet.resourceAnalyzer, eviction.Config{},
-		killPodNow(kubelet.podWorkers, fakeRecorder), kubelet.imageManager, kubelet.containerGC, fakeRecorder, nodeRef, kubelet.clock, kubelet.supportLocalStorageCapacityIsolation())
+		killPodNow(kubelet.podWorkers, fakeRecorder), kubelet.podManager.GetMirrorPodByPod, kubelet.imageManager, kubelet.containerGC, fakeRecorder, nodeRef, kubelet.clock, kubelet.supportLocalStorageCapacityIsolation())
 
 	kubelet.evictionManager = evictionManager
 	kubelet.admitHandlers.AddPodAdmitHandler(evictionAdmitHandler)
@@ -374,7 +365,9 @@ func newTestKubeletWithImageList(
 	if initFakeVolumePlugin {
 		allPlugins = append(allPlugins, plug)
 	} else {
-		allPlugins = append(allPlugins, volumesecret.ProbeVolumePlugins()...)
+		allPlugins = append(allPlugins, awsebs.ProbeVolumePlugins()...)
+		allPlugins = append(allPlugins, gcepd.ProbeVolumePlugins()...)
+		allPlugins = append(allPlugins, azuredd.ProbeVolumePlugins()...)
 	}
 
 	var prober volume.DynamicPluginProber // TODO (#51147) inject mock
@@ -603,11 +596,7 @@ func TestDispatchWorkOfCompletedPod(t *testing.T) {
 		},
 	}
 	for _, pod := range pods {
-		kubelet.podWorkers.UpdatePod(UpdatePodOptions{
-			Pod:        pod,
-			UpdateType: kubetypes.SyncPodSync,
-			StartTime:  time.Now(),
-		})
+		kubelet.dispatchWork(pod, kubetypes.SyncPodSync, nil, time.Now())
 		if !got {
 			t.Errorf("Should not skip completed pod %q", pod.Name)
 		}
@@ -661,11 +650,7 @@ func TestDispatchWorkOfActivePod(t *testing.T) {
 	}
 
 	for _, pod := range pods {
-		kubelet.podWorkers.UpdatePod(UpdatePodOptions{
-			Pod:        pod,
-			UpdateType: kubetypes.SyncPodSync,
-			StartTime:  time.Now(),
-		})
+		kubelet.dispatchWork(pod, kubetypes.SyncPodSync, nil, time.Now())
 		if !got {
 			t.Errorf("Should not skip active pod %q", pod.Name)
 		}
@@ -1362,7 +1347,7 @@ func TestCreateMirrorPod(t *testing.T) {
 			pod.Annotations[kubetypes.ConfigSourceAnnotationKey] = "file"
 			pods := []*v1.Pod{pod}
 			kl.podManager.SetPods(pods)
-			isTerminal, err := kl.SyncPod(context.Background(), tt.updateType, pod, nil, &kubecontainer.PodStatus{})
+			isTerminal, err := kl.syncPod(context.Background(), tt.updateType, pod, nil, &kubecontainer.PodStatus{})
 			assert.NoError(t, err)
 			if isTerminal {
 				t.Fatalf("pod should not be terminal: %#v", pod)
@@ -1398,7 +1383,7 @@ func TestDeleteOutdatedMirrorPod(t *testing.T) {
 
 	pods := []*v1.Pod{pod, mirrorPod}
 	kl.podManager.SetPods(pods)
-	isTerminal, err := kl.SyncPod(context.Background(), kubetypes.SyncPodUpdate, pod, mirrorPod, &kubecontainer.PodStatus{})
+	isTerminal, err := kl.syncPod(context.Background(), kubetypes.SyncPodUpdate, pod, mirrorPod, &kubecontainer.PodStatus{})
 	assert.NoError(t, err)
 	if isTerminal {
 		t.Fatalf("pod should not be terminal: %#v", pod)
@@ -1560,7 +1545,7 @@ func TestNetworkErrorsWithoutHostNetwork(t *testing.T) {
 	})
 
 	kubelet.podManager.SetPods([]*v1.Pod{pod})
-	isTerminal, err := kubelet.SyncPod(context.Background(), kubetypes.SyncPodUpdate, pod, nil, &kubecontainer.PodStatus{})
+	isTerminal, err := kubelet.syncPod(context.Background(), kubetypes.SyncPodUpdate, pod, nil, &kubecontainer.PodStatus{})
 	assert.Error(t, err, "expected pod with hostNetwork=false to fail when network in error")
 	if isTerminal {
 		t.Fatalf("pod should not be terminal: %#v", pod)
@@ -1568,7 +1553,7 @@ func TestNetworkErrorsWithoutHostNetwork(t *testing.T) {
 
 	pod.Annotations[kubetypes.ConfigSourceAnnotationKey] = kubetypes.FileSource
 	pod.Spec.HostNetwork = true
-	isTerminal, err = kubelet.SyncPod(context.Background(), kubetypes.SyncPodUpdate, pod, nil, &kubecontainer.PodStatus{})
+	isTerminal, err = kubelet.syncPod(context.Background(), kubetypes.SyncPodUpdate, pod, nil, &kubecontainer.PodStatus{})
 	assert.NoError(t, err, "expected pod with hostNetwork=true to succeed when network in error")
 	if isTerminal {
 		t.Fatalf("pod should not be terminal: %#v", pod)
@@ -2005,7 +1990,7 @@ func TestGenerateAPIPodStatusWithSortedContainers(t *testing.T) {
 		ContainerStatuses: cStatuses,
 	}
 	for i := 0; i < 5; i++ {
-		apiStatus := kubelet.generateAPIPodStatus(pod, status, false)
+		apiStatus := kubelet.generateAPIPodStatus(pod, status)
 		for i, c := range apiStatus.ContainerStatuses {
 			if expectedOrder[i] != c.Name {
 				t.Fatalf("Container status not sorted, expected %v at index %d, but found %v", expectedOrder[i], i, c.Name)
@@ -2219,7 +2204,7 @@ func TestGenerateAPIPodStatusWithReasonCache(t *testing.T) {
 		pod.Spec.Containers = test.containers
 		pod.Status.ContainerStatuses = test.oldStatuses
 		podStatus.ContainerStatuses = test.statuses
-		apiStatus := kubelet.generateAPIPodStatus(pod, podStatus, false)
+		apiStatus := kubelet.generateAPIPodStatus(pod, podStatus)
 		verifyContainerStatuses(t, apiStatus.ContainerStatuses, test.expectedState, test.expectedLastTerminationState, fmt.Sprintf("case %d", i))
 	}
 
@@ -2232,7 +2217,7 @@ func TestGenerateAPIPodStatusWithReasonCache(t *testing.T) {
 		pod.Spec.InitContainers = test.containers
 		pod.Status.InitContainerStatuses = test.oldStatuses
 		podStatus.ContainerStatuses = test.statuses
-		apiStatus := kubelet.generateAPIPodStatus(pod, podStatus, false)
+		apiStatus := kubelet.generateAPIPodStatus(pod, podStatus)
 		expectedState := test.expectedState
 		if test.expectedInitState != nil {
 			expectedState = test.expectedInitState
@@ -2371,14 +2356,14 @@ func TestGenerateAPIPodStatusWithDifferentRestartPolicies(t *testing.T) {
 		pod.Spec.RestartPolicy = test.restartPolicy
 		// Test normal containers
 		pod.Spec.Containers = containers
-		apiStatus := kubelet.generateAPIPodStatus(pod, podStatus, false)
+		apiStatus := kubelet.generateAPIPodStatus(pod, podStatus)
 		expectedState, expectedLastTerminationState := test.expectedState, test.expectedLastTerminationState
 		verifyContainerStatuses(t, apiStatus.ContainerStatuses, expectedState, expectedLastTerminationState, fmt.Sprintf("case %d", c))
 		pod.Spec.Containers = nil
 
 		// Test init containers
 		pod.Spec.InitContainers = containers
-		apiStatus = kubelet.generateAPIPodStatus(pod, podStatus, false)
+		apiStatus = kubelet.generateAPIPodStatus(pod, podStatus)
 		if test.expectedInitState != nil {
 			expectedState = test.expectedInitState
 		}
@@ -2451,348 +2436,6 @@ func TestHandlePodAdditionsInvokesPodAdmitHandlers(t *testing.T) {
 	checkPodStatus(t, kl, podToAdmit, v1.PodPending)
 }
 
-func TestPodResourceAllocationReset(t *testing.T) {
-	defer featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, features.InPlacePodVerticalScaling, true)()
-	testKubelet := newTestKubelet(t, false)
-	defer testKubelet.Cleanup()
-	kubelet := testKubelet.kubelet
-	kubelet.statusManager = status.NewFakeManager()
-
-	nodes := []*v1.Node{
-		{
-			ObjectMeta: metav1.ObjectMeta{Name: testKubeletHostname},
-			Status: v1.NodeStatus{
-				Capacity: v1.ResourceList{
-					v1.ResourceCPU:    resource.MustParse("8"),
-					v1.ResourceMemory: resource.MustParse("8Gi"),
-				},
-				Allocatable: v1.ResourceList{
-					v1.ResourceCPU:    resource.MustParse("4"),
-					v1.ResourceMemory: resource.MustParse("4Gi"),
-					v1.ResourcePods:   *resource.NewQuantity(40, resource.DecimalSI),
-				},
-			},
-		},
-	}
-	kubelet.nodeLister = testNodeLister{nodes: nodes}
-
-	cpu500m := resource.MustParse("500m")
-	cpu800m := resource.MustParse("800m")
-	mem500M := resource.MustParse("500Mi")
-	mem800M := resource.MustParse("800Mi")
-	cpu500mMem500MPodSpec := &v1.PodSpec{
-		Containers: []v1.Container{
-			{
-				Name: "c1",
-				Resources: v1.ResourceRequirements{
-					Requests: v1.ResourceList{v1.ResourceCPU: cpu500m, v1.ResourceMemory: mem500M},
-				},
-			},
-		},
-	}
-	cpu800mMem800MPodSpec := cpu500mMem500MPodSpec.DeepCopy()
-	cpu800mMem800MPodSpec.Containers[0].Resources.Requests = v1.ResourceList{v1.ResourceCPU: cpu800m, v1.ResourceMemory: mem800M}
-	cpu800mPodSpec := cpu500mMem500MPodSpec.DeepCopy()
-	cpu800mPodSpec.Containers[0].Resources.Requests = v1.ResourceList{v1.ResourceCPU: cpu800m}
-	mem800MPodSpec := cpu500mMem500MPodSpec.DeepCopy()
-	mem800MPodSpec.Containers[0].Resources.Requests = v1.ResourceList{v1.ResourceMemory: mem800M}
-
-	cpu500mPodSpec := cpu500mMem500MPodSpec.DeepCopy()
-	cpu500mPodSpec.Containers[0].Resources.Requests = v1.ResourceList{v1.ResourceCPU: cpu500m}
-	mem500MPodSpec := cpu500mMem500MPodSpec.DeepCopy()
-	mem500MPodSpec.Containers[0].Resources.Requests = v1.ResourceList{v1.ResourceMemory: mem500M}
-	emptyPodSpec := cpu500mMem500MPodSpec.DeepCopy()
-	emptyPodSpec.Containers[0].Resources.Requests = v1.ResourceList{}
-
-	tests := []struct {
-		name                          string
-		pod                           *v1.Pod
-		existingPodAllocation         *v1.Pod
-		expectedPodResourceAllocation state.PodResourceAllocation
-	}{
-		{
-			name: "Having both memory and cpu, resource allocation not exists",
-			pod:  podWithUIDNameNsSpec("1", "pod1", "foo", *cpu500mMem500MPodSpec),
-			expectedPodResourceAllocation: state.PodResourceAllocation{
-				"1": map[string]v1.ResourceList{
-					cpu500mMem500MPodSpec.Containers[0].Name: cpu500mMem500MPodSpec.Containers[0].Resources.Requests,
-				},
-			},
-		},
-		{
-			name:                  "Having both memory and cpu, resource allocation exists",
-			pod:                   podWithUIDNameNsSpec("2", "pod2", "foo", *cpu500mMem500MPodSpec),
-			existingPodAllocation: podWithUIDNameNsSpec("2", "pod2", "foo", *cpu500mMem500MPodSpec),
-			expectedPodResourceAllocation: state.PodResourceAllocation{
-				"2": map[string]v1.ResourceList{
-					cpu500mMem500MPodSpec.Containers[0].Name: cpu500mMem500MPodSpec.Containers[0].Resources.Requests,
-				},
-			},
-		},
-		{
-			name:                  "Having both memory and cpu, resource allocation exists (with different value)",
-			pod:                   podWithUIDNameNsSpec("3", "pod3", "foo", *cpu500mMem500MPodSpec),
-			existingPodAllocation: podWithUIDNameNsSpec("3", "pod3", "foo", *cpu800mMem800MPodSpec),
-			expectedPodResourceAllocation: state.PodResourceAllocation{
-				"3": map[string]v1.ResourceList{
-					cpu800mMem800MPodSpec.Containers[0].Name: cpu800mMem800MPodSpec.Containers[0].Resources.Requests,
-				},
-			},
-		},
-		{
-			name: "Only has cpu, resource allocation not exists",
-			pod:  podWithUIDNameNsSpec("4", "pod5", "foo", *cpu500mPodSpec),
-			expectedPodResourceAllocation: state.PodResourceAllocation{
-				"4": map[string]v1.ResourceList{
-					cpu500mPodSpec.Containers[0].Name: cpu500mPodSpec.Containers[0].Resources.Requests,
-				},
-			},
-		},
-		{
-			name:                  "Only has cpu, resource allocation exists",
-			pod:                   podWithUIDNameNsSpec("5", "pod5", "foo", *cpu500mPodSpec),
-			existingPodAllocation: podWithUIDNameNsSpec("5", "pod5", "foo", *cpu500mPodSpec),
-			expectedPodResourceAllocation: state.PodResourceAllocation{
-				"5": map[string]v1.ResourceList{
-					cpu500mPodSpec.Containers[0].Name: cpu500mPodSpec.Containers[0].Resources.Requests,
-				},
-			},
-		},
-		{
-			name:                  "Only has cpu, resource allocation exists (with different value)",
-			pod:                   podWithUIDNameNsSpec("6", "pod6", "foo", *cpu500mPodSpec),
-			existingPodAllocation: podWithUIDNameNsSpec("6", "pod6", "foo", *cpu800mPodSpec),
-			expectedPodResourceAllocation: state.PodResourceAllocation{
-				"6": map[string]v1.ResourceList{
-					cpu800mPodSpec.Containers[0].Name: cpu800mPodSpec.Containers[0].Resources.Requests,
-				},
-			},
-		},
-		{
-			name: "Only has memory, resource allocation not exists",
-			pod:  podWithUIDNameNsSpec("7", "pod7", "foo", *mem500MPodSpec),
-			expectedPodResourceAllocation: state.PodResourceAllocation{
-				"7": map[string]v1.ResourceList{
-					mem500MPodSpec.Containers[0].Name: mem500MPodSpec.Containers[0].Resources.Requests,
-				},
-			},
-		},
-		{
-			name:                  "Only has memory, resource allocation exists",
-			pod:                   podWithUIDNameNsSpec("8", "pod8", "foo", *mem500MPodSpec),
-			existingPodAllocation: podWithUIDNameNsSpec("8", "pod8", "foo", *mem500MPodSpec),
-			expectedPodResourceAllocation: state.PodResourceAllocation{
-				"8": map[string]v1.ResourceList{
-					mem500MPodSpec.Containers[0].Name: mem500MPodSpec.Containers[0].Resources.Requests,
-				},
-			},
-		},
-		{
-			name:                  "Only has memory, resource allocation exists (with different value)",
-			pod:                   podWithUIDNameNsSpec("9", "pod9", "foo", *mem500MPodSpec),
-			existingPodAllocation: podWithUIDNameNsSpec("9", "pod9", "foo", *mem800MPodSpec),
-			expectedPodResourceAllocation: state.PodResourceAllocation{
-				"9": map[string]v1.ResourceList{
-					mem800MPodSpec.Containers[0].Name: mem800MPodSpec.Containers[0].Resources.Requests,
-				},
-			},
-		},
-		{
-			name: "No CPU and memory, resource allocation not exists",
-			pod:  podWithUIDNameNsSpec("10", "pod10", "foo", *emptyPodSpec),
-			expectedPodResourceAllocation: state.PodResourceAllocation{
-				"10": map[string]v1.ResourceList{
-					emptyPodSpec.Containers[0].Name: emptyPodSpec.Containers[0].Resources.Requests,
-				},
-			},
-		},
-		{
-			name:                  "No CPU and memory, resource allocation exists",
-			pod:                   podWithUIDNameNsSpec("11", "pod11", "foo", *emptyPodSpec),
-			existingPodAllocation: podWithUIDNameNsSpec("11", "pod11", "foo", *emptyPodSpec),
-			expectedPodResourceAllocation: state.PodResourceAllocation{
-				"11": map[string]v1.ResourceList{
-					emptyPodSpec.Containers[0].Name: emptyPodSpec.Containers[0].Resources.Requests,
-				},
-			},
-		},
-	}
-	for _, tc := range tests {
-		if tc.existingPodAllocation != nil {
-			// when kubelet restarts, AllocatedResources has already existed before adding pod
-			err := kubelet.statusManager.SetPodAllocation(tc.existingPodAllocation)
-			if err != nil {
-				t.Fatalf("failed to set pod allocation: %v", err)
-			}
-		}
-		kubelet.HandlePodAdditions([]*v1.Pod{tc.pod})
-
-		allocatedResources, found := kubelet.statusManager.GetContainerResourceAllocation(string(tc.pod.UID), tc.pod.Spec.Containers[0].Name)
-		if !found {
-			t.Fatalf("resource allocation should exist: (pod: %#v, container: %s)", tc.pod, tc.pod.Spec.Containers[0].Name)
-		}
-		assert.Equal(t, tc.expectedPodResourceAllocation[string(tc.pod.UID)][tc.pod.Spec.Containers[0].Name], allocatedResources, tc.name)
-	}
-}
-
-func TestHandlePodResourcesResize(t *testing.T) {
-	defer featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, features.InPlacePodVerticalScaling, true)()
-	testKubelet := newTestKubelet(t, false)
-	defer testKubelet.Cleanup()
-	kubelet := testKubelet.kubelet
-	kubelet.statusManager = status.NewFakeManager()
-
-	cpu500m := resource.MustParse("500m")
-	cpu1000m := resource.MustParse("1")
-	cpu1500m := resource.MustParse("1500m")
-	cpu2500m := resource.MustParse("2500m")
-	cpu5000m := resource.MustParse("5000m")
-	mem500M := resource.MustParse("500Mi")
-	mem1000M := resource.MustParse("1Gi")
-	mem1500M := resource.MustParse("1500Mi")
-	mem2500M := resource.MustParse("2500Mi")
-	mem4500M := resource.MustParse("4500Mi")
-
-	nodes := []*v1.Node{
-		{
-			ObjectMeta: metav1.ObjectMeta{Name: testKubeletHostname},
-			Status: v1.NodeStatus{
-				Capacity: v1.ResourceList{
-					v1.ResourceCPU:    resource.MustParse("8"),
-					v1.ResourceMemory: resource.MustParse("8Gi"),
-				},
-				Allocatable: v1.ResourceList{
-					v1.ResourceCPU:    resource.MustParse("4"),
-					v1.ResourceMemory: resource.MustParse("4Gi"),
-					v1.ResourcePods:   *resource.NewQuantity(40, resource.DecimalSI),
-				},
-			},
-		},
-	}
-	kubelet.nodeLister = testNodeLister{nodes: nodes}
-
-	testPod1 := &v1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			UID:       "1111",
-			Name:      "pod1",
-			Namespace: "ns1",
-		},
-		Spec: v1.PodSpec{
-			Containers: []v1.Container{
-				{
-					Name:  "c1",
-					Image: "i1",
-					Resources: v1.ResourceRequirements{
-						Requests: v1.ResourceList{v1.ResourceCPU: cpu1000m, v1.ResourceMemory: mem1000M},
-					},
-				},
-			},
-		},
-		Status: v1.PodStatus{
-			Phase: v1.PodRunning,
-			ContainerStatuses: []v1.ContainerStatus{
-				{
-					Name:               "c1",
-					AllocatedResources: v1.ResourceList{v1.ResourceCPU: cpu1000m, v1.ResourceMemory: mem1000M},
-					Resources:          &v1.ResourceRequirements{},
-				},
-			},
-		},
-	}
-	testPod2 := testPod1.DeepCopy()
-	testPod2.UID = "2222"
-	testPod2.Name = "pod2"
-	testPod2.Namespace = "ns2"
-	testPod3 := testPod1.DeepCopy()
-	testPod3.UID = "3333"
-	testPod3.Name = "pod3"
-	testPod3.Namespace = "ns2"
-
-	testKubelet.fakeKubeClient = fake.NewSimpleClientset(testPod1, testPod2, testPod3)
-	kubelet.kubeClient = testKubelet.fakeKubeClient
-	defer testKubelet.fakeKubeClient.ClearActions()
-	kubelet.podManager.AddPod(testPod1)
-	kubelet.podManager.AddPod(testPod2)
-	kubelet.podManager.AddPod(testPod3)
-	kubelet.podWorkers.(*fakePodWorkers).running = map[types.UID]bool{
-		testPod1.UID: true,
-		testPod2.UID: true,
-		testPod3.UID: true,
-	}
-	defer kubelet.podManager.RemovePod(testPod3)
-	defer kubelet.podManager.RemovePod(testPod2)
-	defer kubelet.podManager.RemovePod(testPod1)
-
-	tests := []struct {
-		name                string
-		pod                 *v1.Pod
-		newRequests         v1.ResourceList
-		expectedAllocations v1.ResourceList
-		expectedResize      v1.PodResizeStatus
-	}{
-		{
-			name:                "Request CPU and memory decrease - expect InProgress",
-			pod:                 testPod2,
-			newRequests:         v1.ResourceList{v1.ResourceCPU: cpu500m, v1.ResourceMemory: mem500M},
-			expectedAllocations: v1.ResourceList{v1.ResourceCPU: cpu500m, v1.ResourceMemory: mem500M},
-			expectedResize:      v1.PodResizeStatusInProgress,
-		},
-		{
-			name:                "Request CPU increase, memory decrease - expect InProgress",
-			pod:                 testPod2,
-			newRequests:         v1.ResourceList{v1.ResourceCPU: cpu1500m, v1.ResourceMemory: mem500M},
-			expectedAllocations: v1.ResourceList{v1.ResourceCPU: cpu1500m, v1.ResourceMemory: mem500M},
-			expectedResize:      v1.PodResizeStatusInProgress,
-		},
-		{
-			name:                "Request CPU decrease, memory increase - expect InProgress",
-			pod:                 testPod2,
-			newRequests:         v1.ResourceList{v1.ResourceCPU: cpu500m, v1.ResourceMemory: mem1500M},
-			expectedAllocations: v1.ResourceList{v1.ResourceCPU: cpu500m, v1.ResourceMemory: mem1500M},
-			expectedResize:      v1.PodResizeStatusInProgress,
-		},
-		{
-			name:                "Request CPU and memory increase beyond current capacity - expect Deferred",
-			pod:                 testPod2,
-			newRequests:         v1.ResourceList{v1.ResourceCPU: cpu2500m, v1.ResourceMemory: mem2500M},
-			expectedAllocations: v1.ResourceList{v1.ResourceCPU: cpu1000m, v1.ResourceMemory: mem1000M},
-			expectedResize:      v1.PodResizeStatusDeferred,
-		},
-		{
-			name:                "Request CPU decrease and memory increase beyond current capacity - expect Deferred",
-			pod:                 testPod2,
-			newRequests:         v1.ResourceList{v1.ResourceCPU: cpu500m, v1.ResourceMemory: mem2500M},
-			expectedAllocations: v1.ResourceList{v1.ResourceCPU: cpu1000m, v1.ResourceMemory: mem1000M},
-			expectedResize:      v1.PodResizeStatusDeferred,
-		},
-		{
-			name:                "Request memory increase beyond node capacity - expect Infeasible",
-			pod:                 testPod2,
-			newRequests:         v1.ResourceList{v1.ResourceCPU: cpu1000m, v1.ResourceMemory: mem4500M},
-			expectedAllocations: v1.ResourceList{v1.ResourceCPU: cpu1000m, v1.ResourceMemory: mem1000M},
-			expectedResize:      v1.PodResizeStatusInfeasible,
-		},
-		{
-			name:                "Request CPU increase beyond node capacity - expect Infeasible",
-			pod:                 testPod2,
-			newRequests:         v1.ResourceList{v1.ResourceCPU: cpu5000m, v1.ResourceMemory: mem1000M},
-			expectedAllocations: v1.ResourceList{v1.ResourceCPU: cpu1000m, v1.ResourceMemory: mem1000M},
-			expectedResize:      v1.PodResizeStatusInfeasible,
-		},
-	}
-
-	for _, tt := range tests {
-		tt.pod.Spec.Containers[0].Resources.Requests = tt.newRequests
-		tt.pod.Status.ContainerStatuses[0].AllocatedResources = v1.ResourceList{v1.ResourceCPU: cpu1000m, v1.ResourceMemory: mem1000M}
-		kubelet.handlePodResourcesResize(tt.pod)
-		updatedPod, found := kubelet.podManager.GetPodByName(tt.pod.Namespace, tt.pod.Name)
-		assert.True(t, found, "expected to find pod %s", tt.pod.Name)
-		assert.Equal(t, tt.expectedAllocations, updatedPod.Status.ContainerStatuses[0].AllocatedResources, tt.name)
-		assert.Equal(t, tt.expectedResize, updatedPod.Status.Resize, tt.name)
-		testKubelet.fakeKubeClient.ClearActions()
-	}
-}
-
 // testPodSyncLoopHandler is a lifecycle.PodSyncLoopHandler that is used for testing.
 type testPodSyncLoopHandler struct {
 	// list of pods to sync
@@ -2858,7 +2501,7 @@ func TestGenerateAPIPodStatusInvokesPodSyncHandlers(t *testing.T) {
 		Name:      pod.Name,
 		Namespace: pod.Namespace,
 	}
-	apiStatus := kubelet.generateAPIPodStatus(pod, status, false)
+	apiStatus := kubelet.generateAPIPodStatus(pod, status)
 	require.Equal(t, v1.PodFailed, apiStatus.Phase)
 	require.Equal(t, "Evicted", apiStatus.Reason)
 	require.Equal(t, "because", apiStatus.Message)
@@ -2879,7 +2522,7 @@ func TestSyncTerminatingPodKillPod(t *testing.T) {
 	kl.podManager.SetPods(pods)
 	podStatus := &kubecontainer.PodStatus{ID: pod.UID}
 	gracePeriodOverride := int64(0)
-	err := kl.SyncTerminatingPod(context.Background(), pod, podStatus, &gracePeriodOverride, func(podStatus *v1.PodStatus) {
+	err := kl.syncTerminatingPod(context.Background(), pod, podStatus, nil, &gracePeriodOverride, func(podStatus *v1.PodStatus) {
 		podStatus.Phase = v1.PodFailed
 		podStatus.Reason = "reason"
 		podStatus.Message = "message"
@@ -3184,6 +2827,7 @@ func TestNewMainKubeletStandAlone(t *testing.T) {
 		metav1.Duration{Duration: time.Minute},
 		1024,
 		110,
+		"default",
 		true,
 		true,
 		map[string]string{},

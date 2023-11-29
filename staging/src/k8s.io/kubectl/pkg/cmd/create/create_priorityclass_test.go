@@ -18,13 +18,12 @@ package create
 
 import (
 	"bytes"
-	"io"
+	"io/ioutil"
 	"net/http"
 	"testing"
 
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
-	"k8s.io/cli-runtime/pkg/genericiooptions"
 	restclient "k8s.io/client-go/rest"
 	"k8s.io/client-go/rest/fake"
 	cmdtesting "k8s.io/kubectl/pkg/cmd/testing"
@@ -44,7 +43,7 @@ func TestCreatePriorityClass(t *testing.T) {
 		Client: fake.CreateHTTPClient(func(req *http.Request) (*http.Response, error) {
 			return &http.Response{
 				StatusCode: http.StatusOK,
-				Body:       io.NopCloser(&bytes.Buffer{}),
+				Body:       ioutil.NopCloser(&bytes.Buffer{}),
 			}, nil
 		}),
 	}
@@ -52,7 +51,7 @@ func TestCreatePriorityClass(t *testing.T) {
 
 	outputFormat := "name"
 
-	ioStreams, _, buf, _ := genericiooptions.NewTestIOStreams()
+	ioStreams, _, buf, _ := genericclioptions.NewTestIOStreams()
 	cmd := NewCmdCreatePriorityClass(tf, ioStreams)
 	cmd.Flags().Set("value", "1000")
 	cmd.Flags().Set("global-default", "true")

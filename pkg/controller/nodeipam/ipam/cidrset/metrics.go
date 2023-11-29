@@ -44,16 +44,6 @@ var (
 		},
 		[]string{"clusterCIDR"},
 	)
-	// This is a gauge, as in theory, a limit can increase or decrease.
-	cidrSetMaxCidrs = metrics.NewGaugeVec(
-		&metrics.GaugeOpts{
-			Subsystem:      nodeIpamSubsystem,
-			Name:           "cirdset_max_cidrs",
-			Help:           "Maximum number of CIDRs that can be allocated.",
-			StabilityLevel: metrics.ALPHA,
-		},
-		[]string{"clusterCIDR"},
-	)
 	cidrSetUsage = metrics.NewGaugeVec(
 		&metrics.GaugeOpts{
 			Subsystem:      nodeIpamSubsystem,
@@ -82,7 +72,6 @@ func registerCidrsetMetrics() {
 	registerMetrics.Do(func() {
 		legacyregistry.MustRegister(cidrSetAllocations)
 		legacyregistry.MustRegister(cidrSetReleases)
-		legacyregistry.MustRegister(cidrSetMaxCidrs)
 		legacyregistry.MustRegister(cidrSetUsage)
 		legacyregistry.MustRegister(cidrSetAllocationTriesPerRequest)
 	})

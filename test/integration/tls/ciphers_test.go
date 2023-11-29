@@ -79,9 +79,9 @@ func runTestAPICiphers(t *testing.T, testID int, kubePort int, clientCiphers []u
 		defer resp.Body.Close()
 	}
 
-	if expectedError && err == nil {
+	if expectedError == true && err == nil {
 		t.Fatalf("%d: expecting error for cipher test, client cipher is supported and it should't", testID)
-	} else if err != nil && !expectedError {
+	} else if err != nil && expectedError == false {
 		t.Fatalf("%d: not expecting error by client with cipher failed: %+v", testID, err)
 	}
 }

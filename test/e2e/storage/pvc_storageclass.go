@@ -22,8 +22,6 @@ import (
 	"time"
 
 	"github.com/onsi/ginkgo/v2"
-	"github.com/onsi/gomega"
-
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -39,7 +37,7 @@ import (
 
 var _ = utils.SIGDescribe("Persistent Volume Claim and StorageClass", func() {
 	f := framework.NewDefaultFramework("pvc-retroactive-storageclass")
-	f.NamespacePodSecurityLevel = admissionapi.LevelBaseline
+	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelBaseline
 
 	var (
 		client    clientset.Interface
@@ -66,7 +64,7 @@ var _ = utils.SIGDescribe("Persistent Volume Claim and StorageClass", func() {
 		ginkgo.It("should assign default SC to PVCs that have no SC set", func(ctx context.Context) {
 
 			// Temporarily set all default storage classes as non-default
-			restoreClasses := temporarilyUnsetDefaultClasses(ctx, client)
+			restoreClasses := temporarilyUnsetDefaultClasses(client)
 			defer restoreClasses()
 
 			// Create PVC with nil SC
@@ -75,11 +73,11 @@ var _ = utils.SIGDescribe("Persistent Volume Claim and StorageClass", func() {
 				ClaimSize:  t.ClaimSize,
 				VolumeMode: &t.VolumeMode,
 			}, namespace)
-			pvc, err = client.CoreV1().PersistentVolumeClaims(pvcObj.Namespace).Create(ctx, pvcObj, metav1.CreateOptions{})
+			pvc, err = client.CoreV1().PersistentVolumeClaims(pvcObj.Namespace).Create(context.TODO(), pvcObj, metav1.CreateOptions{})
 			framework.ExpectNoError(err, "Error creating PVC")
 			defer func(pvc *v1.PersistentVolumeClaim) {
 				// Remove test PVC
-				err := client.CoreV1().PersistentVolumeClaims(pvc.Namespace).Delete(ctx, pvc.Name, metav1.DeleteOptions{})
+				err := client.CoreV1().PersistentVolumeClaims(pvc.Namespace).Delete(context.TODO(), pvc.Name, metav1.DeleteOptions{})
 				framework.ExpectNoError(err, "Error cleaning up PVC")
 			}(pvc)
 
@@ -87,7 +85,7 @@ var _ = utils.SIGDescribe("Persistent Volume Claim and StorageClass", func() {
 			storageClass := testsuites.SetupStorageClass(ctx, client, makeStorageClass(prefixSC))
 
 			// Wait for PVC to get updated with the new default SC
-			pvc, err = waitForPVCStorageClass(ctx, client, namespace, pvc.Name, storageClass.Name, f.Timeouts.ClaimBound)
+			pvc, err = waitForPVCStorageClass(client, namespace, pvc.Name, storageClass.Name, f.Timeouts.ClaimBound)
 			framework.ExpectNoError(err, "Error updating PVC with the correct storage class")
 
 			// Create PV with specific class
@@ -101,17 +99,20 @@ var _ = utils.SIGDescribe("Persistent Volume Claim and StorageClass", func() {
 					},
 				},
 			})
-			_, err = e2epv.CreatePV(ctx, client, f.Timeouts, pv)
+			_, err = e2epv.CreatePV(client, f.Timeouts, pv)
 			framework.ExpectNoError(err, "Error creating pv %v", err)
-			ginkgo.DeferCleanup(e2epv.DeletePersistentVolume, client, pv.Name)
+			defer func(c clientset.Interface, pvName string) {
+				err := e2epv.DeletePersistentVolume(c, pvName)
+				framework.ExpectNoError(err)
+			}(client, pv.Name)
 
 			// Verify the PVC is bound and has the new default SC
 			claimNames := []string{pvc.Name}
-			err = e2epv.WaitForPersistentVolumeClaimsPhase(ctx, v1.ClaimBound, client, namespace, claimNames, 2*time.Second /* Poll */, t.Timeouts.ClaimProvisionShort, false)
+			err = e2epv.WaitForPersistentVolumeClaimsPhase(v1.ClaimBound, client, namespace, claimNames, 2*time.Second /* Poll */, t.Timeouts.ClaimProvisionShort, false)
 			framework.ExpectNoError(err)
-			updatedPVC, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvc.Name, metav1.GetOptions{})
+			updatedPVC, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(context.TODO(), pvc.Name, metav1.GetOptions{})
 			framework.ExpectNoError(err)
-			gomega.Expect(*updatedPVC.Spec.StorageClassName).To(gomega.Equal(storageClass.Name), "Expected PVC %v to have StorageClass %v, but it has StorageClass %v instead", updatedPVC.Name, prefixSC, updatedPVC.Spec.StorageClassName)
+			framework.ExpectEqual(*updatedPVC.Spec.StorageClassName, storageClass.Name, "Expected PVC %v to have StorageClass %v, but it has StorageClass %v instead", updatedPVC.Name, prefixSC, updatedPVC.Spec.StorageClassName)
 			framework.Logf("Success - PersistentVolumeClaim %s got updated retroactively with StorageClass %v", updatedPVC.Name, storageClass.Name)
 		})
 	})
@@ -132,8 +133,8 @@ func makeStorageClass(prefixSC string) *storagev1.StorageClass {
 	}
 }
 
-func temporarilyUnsetDefaultClasses(ctx context.Context, client clientset.Interface) func() {
-	classes, err := client.StorageV1().StorageClasses().List(ctx, metav1.ListOptions{})
+func temporarilyUnsetDefaultClasses(client clientset.Interface) func() {
+	classes, err := client.StorageV1().StorageClasses().List(context.TODO(), metav1.ListOptions{})
 	framework.ExpectNoError(err)
 
 	var changedClasses []storagev1.StorageClass
@@ -142,7 +143,7 @@ func temporarilyUnsetDefaultClasses(ctx context.Context, client clientset.Interf
 		if sc.Annotations[storageutil.IsDefaultStorageClassAnnotation] == "true" {
 			changedClasses = append(changedClasses, sc)
 			sc.Annotations[storageutil.IsDefaultStorageClassAnnotation] = "false"
-			_, err := client.StorageV1().StorageClasses().Update(ctx, &sc, metav1.UpdateOptions{})
+			_, err := client.StorageV1().StorageClasses().Update(context.TODO(), &sc, metav1.UpdateOptions{})
 			framework.ExpectNoError(err)
 		}
 	}
@@ -150,19 +151,19 @@ func temporarilyUnsetDefaultClasses(ctx context.Context, client clientset.Interf
 	return func() {
 		for _, sc := range changedClasses {
 			sc.Annotations[storageutil.IsDefaultStorageClassAnnotation] = "true"
-			_, err := client.StorageV1().StorageClasses().Update(ctx, &sc, metav1.UpdateOptions{})
+			_, err := client.StorageV1().StorageClasses().Update(context.TODO(), &sc, metav1.UpdateOptions{})
 			framework.ExpectNoError(err)
 		}
 	}
 
 }
 
-func waitForPVCStorageClass(ctx context.Context, c clientset.Interface, namespace, pvcName, scName string, timeout time.Duration) (*v1.PersistentVolumeClaim, error) {
+func waitForPVCStorageClass(c clientset.Interface, namespace, pvcName, scName string, timeout time.Duration) (*v1.PersistentVolumeClaim, error) {
 	var watchedPVC *v1.PersistentVolumeClaim
 
-	err := wait.PollWithContext(ctx, 1*time.Second, timeout, func(ctx context.Context) (bool, error) {
+	err := wait.Poll(1*time.Second, timeout, func() (bool, error) {
 		var err error
-		watchedPVC, err = c.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvcName, metav1.GetOptions{})
+		watchedPVC, err = c.CoreV1().PersistentVolumeClaims(namespace).Get(context.TODO(), pvcName, metav1.GetOptions{})
 		if err != nil {
 			return true, err
 		}
@@ -178,7 +179,7 @@ func waitForPVCStorageClass(ctx context.Context, c clientset.Interface, namespac
 	})
 
 	if err != nil {
-		return watchedPVC, fmt.Errorf("error waiting for claim %s to have StorageClass set to %s: %w", pvcName, scName, err)
+		return watchedPVC, fmt.Errorf("error waiting for claim %s to have StorageClass set to %s: %v", pvcName, scName, err)
 	}
 
 	return watchedPVC, nil

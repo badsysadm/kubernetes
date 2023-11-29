@@ -40,9 +40,9 @@ import (
 	"github.com/onsi/gomega"
 )
 
-var _ = sigDescribe("[Feature:Windows] Density [Serial] [Slow]", skipUnlessWindows(func() {
+var _ = SIGDescribe("[Feature:Windows] Density [Serial] [Slow]", func() {
 	f := framework.NewDefaultFramework("density-test-windows")
-	f.NamespacePodSecurityLevel = admissionapi.LevelPrivileged
+	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 
 	ginkgo.Context("create a batch of pods", func() {
 		// TODO(coufon): the values are generous, set more precise limits with benchmark data
@@ -65,14 +65,14 @@ var _ = sigDescribe("[Feature:Windows] Density [Serial] [Slow]", skipUnlessWindo
 		for _, testArg := range dTests {
 			itArg := testArg
 			desc := fmt.Sprintf("latency/resource should be within limit when create %d pods with %v interval", itArg.podsNr, itArg.interval)
-			ginkgo.It(desc, func(ctx context.Context) {
+			ginkgo.It(desc, func() {
 				itArg.createMethod = "batch"
-				runDensityBatchTest(ctx, f, itArg)
+				runDensityBatchTest(f, itArg)
 			})
 		}
 	})
 
-}))
+})
 
 type densityTest struct {
 	// number of pods
@@ -89,7 +89,7 @@ type densityTest struct {
 }
 
 // runDensityBatchTest runs the density batch pod creation test
-func runDensityBatchTest(ctx context.Context, f *framework.Framework, testArg densityTest) (time.Duration, []e2emetrics.PodLatencyData) {
+func runDensityBatchTest(f *framework.Framework, testArg densityTest) (time.Duration, []e2emetrics.PodLatencyData) {
 	const (
 		podType = "density_test_pod"
 	)
@@ -103,17 +103,17 @@ func runDensityBatchTest(ctx context.Context, f *framework.Framework, testArg de
 	pods := newDensityTestPods(testArg.podsNr, false, imageutils.GetPauseImageName(), podType)
 
 	// the controller watches the change of pod status
-	controller := newInformerWatchPod(ctx, f, mutex, watchTimes, podType)
+	controller := newInformerWatchPod(f, mutex, watchTimes, podType)
 	go controller.Run(stopCh)
 	defer close(stopCh)
 
 	ginkgo.By("Creating a batch of pods")
 	// It returns a map['pod name']'creation time' containing the creation timestamps
-	createTimes := createBatchPodWithRateControl(ctx, f, pods, testArg.interval)
+	createTimes := createBatchPodWithRateControl(f, pods, testArg.interval)
 
 	ginkgo.By("Waiting for all Pods to be observed by the watch...")
 
-	gomega.Eventually(ctx, func() bool {
+	gomega.Eventually(func() bool {
 		return len(watchTimes) == testArg.podsNr
 	}, 10*time.Minute, 10*time.Second).Should(gomega.BeTrue())
 
@@ -154,25 +154,25 @@ func runDensityBatchTest(ctx context.Context, f *framework.Framework, testArg de
 	sort.Sort(e2emetrics.LatencySlice(e2eLags))
 	batchLag := lastRunning.Time.Sub(firstCreate.Time)
 
-	deletePodsSync(ctx, f, pods)
+	deletePodsSync(f, pods)
 
 	return batchLag, e2eLags
 }
 
 // createBatchPodWithRateControl creates a batch of pods concurrently, uses one goroutine for each creation.
 // between creations there is an interval for throughput control
-func createBatchPodWithRateControl(ctx context.Context, f *framework.Framework, pods []*v1.Pod, interval time.Duration) map[string]metav1.Time {
+func createBatchPodWithRateControl(f *framework.Framework, pods []*v1.Pod, interval time.Duration) map[string]metav1.Time {
 	createTimes := make(map[string]metav1.Time)
 	for _, pod := range pods {
 		createTimes[pod.ObjectMeta.Name] = metav1.Now()
-		go e2epod.NewPodClient(f).Create(ctx, pod)
+		go e2epod.NewPodClient(f).Create(pod)
 		time.Sleep(interval)
 	}
 	return createTimes
 }
 
 // newInformerWatchPod creates an informer to check whether all pods are running.
-func newInformerWatchPod(ctx context.Context, f *framework.Framework, mutex *sync.Mutex, watchTimes map[string]metav1.Time, podType string) cache.Controller {
+func newInformerWatchPod(f *framework.Framework, mutex *sync.Mutex, watchTimes map[string]metav1.Time, podType string) cache.Controller {
 	ns := f.Namespace.Name
 	checkPodRunning := func(p *v1.Pod) {
 		mutex.Lock()
@@ -190,12 +190,12 @@ func newInformerWatchPod(ctx context.Context, f *framework.Framework, mutex *syn
 		&cache.ListWatch{
 			ListFunc: func(options metav1.ListOptions) (runtime.Object, error) {
 				options.LabelSelector = labels.SelectorFromSet(labels.Set{"type": podType}).String()
-				obj, err := f.ClientSet.CoreV1().Pods(ns).List(ctx, options)
+				obj, err := f.ClientSet.CoreV1().Pods(ns).List(context.TODO(), options)
 				return runtime.Object(obj), err
 			},
 			WatchFunc: func(options metav1.ListOptions) (watch.Interface, error) {
 				options.LabelSelector = labels.SelectorFromSet(labels.Set{"type": podType}).String()
-				return f.ClientSet.CoreV1().Pods(ns).Watch(ctx, options)
+				return f.ClientSet.CoreV1().Pods(ns).Watch(context.TODO(), options)
 			},
 		},
 		&v1.Pod{},
@@ -265,7 +265,7 @@ func newDensityTestPods(numPods int, volume bool, imageName, podType string) []*
 }
 
 // deletePodsSync deletes a list of pods and block until pods disappear.
-func deletePodsSync(ctx context.Context, f *framework.Framework, pods []*v1.Pod) {
+func deletePodsSync(f *framework.Framework, pods []*v1.Pod) {
 	var wg sync.WaitGroup
 	for _, pod := range pods {
 		wg.Add(1)
@@ -273,10 +273,11 @@ func deletePodsSync(ctx context.Context, f *framework.Framework, pods []*v1.Pod)
 			defer ginkgo.GinkgoRecover()
 			defer wg.Done()
 
-			err := e2epod.NewPodClient(f).Delete(ctx, pod.ObjectMeta.Name, *metav1.NewDeleteOptions(30))
+			err := e2epod.NewPodClient(f).Delete(context.TODO(), pod.ObjectMeta.Name, *metav1.NewDeleteOptions(30))
 			framework.ExpectNoError(err)
 
-			err = e2epod.WaitForPodNotFoundInNamespace(ctx, f.ClientSet, pod.ObjectMeta.Name, f.Namespace.Name, 10*time.Minute)
+			err = e2epod.WaitForPodToDisappear(f.ClientSet, f.Namespace.Name, pod.ObjectMeta.Name, labels.Everything(),
+				30*time.Second, 10*time.Minute)
 			framework.ExpectNoError(err)
 		}(pod)
 	}

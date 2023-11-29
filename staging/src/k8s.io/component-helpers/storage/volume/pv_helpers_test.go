@@ -270,7 +270,7 @@ func makeTestPersistentVolumeClaim(name string, size string, accessMode []v1.Per
 		},
 		Spec: v1.PersistentVolumeClaimSpec{
 			AccessModes: accessMode,
-			Resources: v1.VolumeResourceRequirements{
+			Resources: v1.ResourceRequirements{
 				Requests: v1.ResourceList{
 					v1.ResourceName(v1.ResourceStorage): resource.MustParse(size),
 				},

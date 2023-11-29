@@ -19,22 +19,25 @@ package plugin
 import (
 	"sync"
 
-	"k8s.io/klog/v2"
+	utilversion "k8s.io/apimachinery/pkg/util/version"
 )
 
-// PluginsStore holds a list of DRA Plugins.
-type pluginsStore struct {
-	sync.RWMutex
-	store map[string]*plugin
+// Plugin is a description of a DRA Plugin, defined by an endpoint
+// and the highest DRA version supported.
+type Plugin struct {
+	endpoint                string
+	highestSupportedVersion *utilversion.Version
 }
 
-// draPlugins map keeps track of all registered DRA plugins on the node
-// and their corresponding sockets.
-var draPlugins = &pluginsStore{}
+// PluginsStore holds a list of DRA Plugins.
+type PluginsStore struct {
+	sync.RWMutex
+	store map[string]*Plugin
+}
 
 // Get lets you retrieve a DRA Plugin by name.
 // This method is protected by a mutex.
-func (s *pluginsStore) get(pluginName string) *plugin {
+func (s *PluginsStore) Get(pluginName string) *Plugin {
 	s.RLock()
 	defer s.RUnlock()
 
@@ -43,26 +46,31 @@ func (s *pluginsStore) get(pluginName string) *plugin {
 
 // Set lets you save a DRA Plugin to the list and give it a specific name.
 // This method is protected by a mutex.
-func (s *pluginsStore) add(pluginName string, p *plugin) {
+func (s *PluginsStore) Set(pluginName string, plugin *Plugin) {
 	s.Lock()
 	defer s.Unlock()
 
 	if s.store == nil {
-		s.store = make(map[string]*plugin)
+		s.store = make(map[string]*Plugin)
 	}
 
-	_, exists := s.store[pluginName]
-	if exists {
-		klog.V(1).InfoS(log("plugin: %s already registered, previous plugin will be overridden", pluginName))
-	}
-	s.store[pluginName] = p
+	s.store[pluginName] = plugin
 }
 
 // Delete lets you delete a DRA Plugin by name.
 // This method is protected by a mutex.
-func (s *pluginsStore) delete(pluginName string) {
+func (s *PluginsStore) Delete(pluginName string) {
 	s.Lock()
 	defer s.Unlock()
 
 	delete(s.store, pluginName)
+}
+
+// Clear deletes all entries in the store.
+// This methiod is protected by a mutex.
+func (s *PluginsStore) Clear() {
+	s.Lock()
+	defer s.Unlock()
+
+	s.store = make(map[string]*Plugin)
 }

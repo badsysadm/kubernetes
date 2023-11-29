@@ -16,6 +16,9 @@ limitations under the License.
 
 package node
 
-import "k8s.io/kubernetes/test/e2e/framework"
+import "github.com/onsi/ginkgo/v2"
 
-var SIGDescribe = framework.SIGDescribe("node")
+// SIGDescribe annotates the test with the SIG label.
+func SIGDescribe(text string, body func()) bool {
+	return ginkgo.Describe("[sig-node] "+text, body)
+}

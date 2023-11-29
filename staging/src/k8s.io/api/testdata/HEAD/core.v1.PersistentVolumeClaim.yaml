@@ -45,6 +45,8 @@ spec:
     name: nameValue
     namespace: namespaceValue
   resources:
+    claims:
+    - name: nameValue
     limits:
       limitsKey: "0"
     requests:
@@ -63,8 +65,6 @@ spec:
 status:
   accessModes:
   - accessModesValue
-  allocatedResourceStatuses:
-    allocatedResourceStatusesKey: allocatedResourceStatusesValue
   allocatedResources:
     allocatedResourcesKey: "0"
   capacity:
@@ -77,3 +77,4 @@ status:
     status: statusValue
     type: typeValue
   phase: phaseValue
+  resizeStatus: resizeStatusValue

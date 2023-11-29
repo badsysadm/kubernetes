@@ -21,7 +21,6 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"os"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -33,8 +32,11 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/kubernetes/pkg/kubelet/configmap"
 	kubepod "k8s.io/kubernetes/pkg/kubelet/pod"
+	podtest "k8s.io/kubernetes/pkg/kubelet/pod/testing"
 	"k8s.io/kubernetes/pkg/kubelet/prober/results"
+	"k8s.io/kubernetes/pkg/kubelet/secret"
 	"k8s.io/kubernetes/pkg/kubelet/status"
 	statustest "k8s.io/kubernetes/pkg/kubelet/status/testing"
 	kubeletutil "k8s.io/kubernetes/pkg/kubelet/util"
@@ -72,6 +74,10 @@ func TestTCPPortExhaustion(t *testing.T) {
 		numContainers = 600
 	)
 
+	if testing.Short() {
+		t.Skip("skipping TCP port exhaustion in short mode")
+	}
+
 	tests := []struct {
 		name string
 		http bool // it can be tcp or http
@@ -81,16 +87,10 @@ func TestTCPPortExhaustion(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(fmt.Sprintf(tt.name), func(t *testing.T) {
-			testRootDir := ""
-			if tempDir, err := os.MkdirTemp("", "kubelet_test."); err != nil {
-				t.Fatalf("can't make a temp rootdir: %v", err)
-			} else {
-				testRootDir = tempDir
-			}
-			podManager := kubepod.NewBasicPodManager()
+			podManager := kubepod.NewBasicPodManager(podtest.NewFakeMirrorClient(), secret.NewFakeManager(), configmap.NewFakeManager())
 			podStartupLatencyTracker := kubeletutil.NewPodStartupLatencyTracker()
 			m := NewManager(
-				status.NewManager(&fake.Clientset{}, podManager, &statustest.FakePodDeletionSafetyProvider{}, podStartupLatencyTracker, testRootDir),
+				status.NewManager(&fake.Clientset{}, podManager, &statustest.FakePodDeletionSafetyProvider{}, podStartupLatencyTracker),
 				results.NewManager(),
 				results.NewManager(),
 				results.NewManager(),
@@ -257,14 +257,14 @@ func (f *fakePod) probeHandler() v1.ProbeHandler {
 		handler = v1.ProbeHandler{
 			HTTPGet: &v1.HTTPGetAction{
 				Host: "127.0.0.1",
-				Port: intstr.FromInt32(int32(port)),
+				Port: intstr.FromInt(port),
 			},
 		}
 	} else {
 		handler = v1.ProbeHandler{
 			TCPSocket: &v1.TCPSocketAction{
 				Host: "127.0.0.1",
-				Port: intstr.FromInt32(int32(port)),
+				Port: intstr.FromInt(port),
 			},
 		}
 	}

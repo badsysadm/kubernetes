@@ -17,7 +17,6 @@ limitations under the License.
 package upgrades
 
 import (
-	"context"
 	"encoding/xml"
 	"fmt"
 	"os"
@@ -42,7 +41,7 @@ type chaosMonkeyAdapter struct {
 	upgCtx      UpgradeContext
 }
 
-func (cma *chaosMonkeyAdapter) Test(ctx context.Context, sem *chaosmonkey.Semaphore) {
+func (cma *chaosMonkeyAdapter) Test(sem *chaosmonkey.Semaphore) {
 	var once sync.Once
 	ready := func() {
 		once.Do(func() {
@@ -55,10 +54,10 @@ func (cma *chaosMonkeyAdapter) Test(ctx context.Context, sem *chaosmonkey.Semaph
 		return
 	}
 
-	ginkgo.DeferCleanup(cma.test.Teardown, cma.framework)
-	cma.test.Setup(ctx, cma.framework)
+	defer cma.test.Teardown(cma.framework)
+	cma.test.Setup(cma.framework)
 	ready()
-	cma.test.Test(ctx, cma.framework, sem.StopCh, cma.upgradeType)
+	cma.test.Test(cma.framework, sem.StopCh, cma.upgradeType)
 }
 
 func CreateUpgradeFrameworks(tests []Test) map[string]*framework.Framework {
@@ -68,7 +67,7 @@ func CreateUpgradeFrameworks(tests []Test) map[string]*framework.Framework {
 		ns := nsFilter.ReplaceAllString(t.Name(), "-") // and replace with a single hyphen
 		ns = strings.Trim(ns, "-")
 		f := framework.NewDefaultFramework(ns)
-		f.NamespacePodSecurityLevel = admissionapi.LevelPrivileged
+		f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 		testFrameworks[t.Name()] = f
 	}
 	return testFrameworks
@@ -76,13 +75,12 @@ func CreateUpgradeFrameworks(tests []Test) map[string]*framework.Framework {
 
 // RunUpgradeSuite runs the actual upgrade tests.
 func RunUpgradeSuite(
-	ctx context.Context,
 	upgCtx *UpgradeContext,
 	tests []Test,
 	testFrameworks map[string]*framework.Framework,
 	testSuite *junit.TestSuite,
 	upgradeType UpgradeType,
-	upgradeFunc func(ctx context.Context),
+	upgradeFunc func(),
 ) {
 	cm := chaosmonkey.New(upgradeFunc)
 	for _, t := range tests {
@@ -114,5 +112,5 @@ func RunUpgradeSuite(
 			xml.NewEncoder(f).Encode(testSuite)
 		}
 	}()
-	cm.Do(ctx)
+	cm.Do()
 }

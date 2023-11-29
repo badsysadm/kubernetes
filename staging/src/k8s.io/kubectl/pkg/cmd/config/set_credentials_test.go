@@ -18,7 +18,7 @@ package config
 
 import (
 	"bytes"
-	utiltesting "k8s.io/client-go/util/testing"
+	"io/ioutil"
 	"os"
 	"reflect"
 	"testing"
@@ -454,11 +454,11 @@ func TestSetCredentials(t *testing.T) {
 	test.run(t)
 }
 func (test setCredentialsTest) run(t *testing.T) {
-	fakeKubeFile, err := os.CreateTemp(os.TempDir(), "")
+	fakeKubeFile, err := ioutil.TempFile(os.TempDir(), "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	defer utiltesting.CloseAndRemove(t, fakeKubeFile)
+	defer os.Remove(fakeKubeFile.Name())
 	err = clientcmd.WriteToFile(test.config, fakeKubeFile.Name())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)

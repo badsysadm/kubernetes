@@ -32,7 +32,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
-	"k8s.io/utils/ptr"
+	"k8s.io/utils/pointer"
 
 	kubeadmapi "k8s.io/kubernetes/cmd/kubeadm/app/apis/kubeadm"
 	"k8s.io/kubernetes/cmd/kubeadm/app/constants"
@@ -66,7 +66,7 @@ func (c *healthCheck) Name() string {
 // - the API /healthz endpoint is healthy
 // - all control-plane Nodes are Ready
 // - (if static pod-hosted) that all required Static Pod manifests exist on disk
-func CheckClusterHealth(client clientset.Interface, cfg *kubeadmapi.ClusterConfiguration, ignoreChecksErrors sets.Set[string]) error {
+func CheckClusterHealth(client clientset.Interface, cfg *kubeadmapi.ClusterConfiguration, ignoreChecksErrors sets.String) error {
 	fmt.Println("[upgrade] Running cluster health checks")
 
 	healthChecks := []preflight.Checker{
@@ -82,15 +82,17 @@ func CheckClusterHealth(client clientset.Interface, cfg *kubeadmapi.ClusterConfi
 			f:      controlPlaneNodesReady,
 		},
 		&healthCheck{
-			name: "StaticPodManifest",
-			f:    staticPodManifestHealth,
+			name:   "StaticPodManifest",
+			client: client,
+			cfg:    cfg,
+			f:      staticPodManifestHealth,
 		},
 	}
 
 	return preflight.RunChecks(healthChecks, os.Stderr, ignoreChecksErrors)
 }
 
-// createJob is a check that verifies that a Job can be created in the cluster
+// CreateJob is a check that verifies that a Job can be created in the cluster
 func createJob(client clientset.Interface, cfg *kubeadmapi.ClusterConfiguration) (lastError error) {
 	const (
 		jobName = "upgrade-health-check"
@@ -112,14 +114,14 @@ func createJob(client clientset.Interface, cfg *kubeadmapi.ClusterConfiguration)
 			Namespace: ns,
 		},
 		Spec: batchv1.JobSpec{
-			BackoffLimit: ptr.To[int32](0),
+			BackoffLimit: pointer.Int32(0),
 			Template: v1.PodTemplateSpec{
 				Spec: v1.PodSpec{
 					RestartPolicy: v1.RestartPolicyNever,
 					SecurityContext: &v1.PodSecurityContext{
-						RunAsUser:    ptr.To[int64](999),
-						RunAsGroup:   ptr.To[int64](999),
-						RunAsNonRoot: ptr.To(true),
+						RunAsUser:    pointer.Int64(999),
+						RunAsGroup:   pointer.Int64(999),
+						RunAsNonRoot: pointer.Bool(true),
 					},
 					Tolerations: []v1.Toleration{
 						{
@@ -205,9 +207,9 @@ func deleteHealthCheckJob(client clientset.Interface, ns, jobName string) error 
 
 // controlPlaneNodesReady checks whether all control-plane Nodes in the cluster are in the Running state
 func controlPlaneNodesReady(client clientset.Interface, _ *kubeadmapi.ClusterConfiguration) error {
-	selectorControlPlane := labels.SelectorFromSet(map[string]string{
+	selectorControlPlane := labels.SelectorFromSet(labels.Set(map[string]string{
 		constants.LabelNodeRoleControlPlane: "",
-	})
+	}))
 	nodes, err := client.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{
 		LabelSelector: selectorControlPlane.String(),
 	})

@@ -20,8 +20,6 @@ import (
 	"testing"
 	"time"
 
-	"k8s.io/klog/v2/ktesting"
-
 	"fmt"
 
 	"github.com/stretchr/testify/require"
@@ -36,8 +34,11 @@ import (
 	featuregatetesting "k8s.io/component-base/featuregate/testing"
 	csitrans "k8s.io/csi-translation-lib"
 	"k8s.io/kubernetes/pkg/features"
+	"k8s.io/kubernetes/pkg/kubelet/configmap"
 	containertest "k8s.io/kubernetes/pkg/kubelet/container/testing"
 	kubepod "k8s.io/kubernetes/pkg/kubelet/pod"
+	podtest "k8s.io/kubernetes/pkg/kubelet/pod/testing"
+	"k8s.io/kubernetes/pkg/kubelet/secret"
 	"k8s.io/kubernetes/pkg/kubelet/volumemanager/cache"
 	"k8s.io/kubernetes/pkg/volume"
 	"k8s.io/kubernetes/pkg/volume/csimigration"
@@ -90,7 +91,8 @@ func prepareDswpWithVolume(t *testing.T) (*desiredStateOfWorldPopulator, kubepod
 
 func TestFindAndAddNewPods_WithRescontructedVolume(t *testing.T) {
 	// Outer volume spec replacement is needed only when the old volume reconstruction is used
-	defer featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, features.NewVolumeManagerReconstruction, false)()
+	// (i.e. with SELinuxMountReadWriteOncePod disabled)
+	defer featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, features.SELinuxMountReadWriteOncePod, false)()
 	// create dswp
 	dswp, fakePodManager, _ := prepareDswpWithVolume(t)
 
@@ -135,8 +137,7 @@ func TestFindAndAddNewPods_WithRescontructedVolume(t *testing.T) {
 		VolumeSpec:          volume.NewSpecFromPersistentVolume(pv, false),
 		VolumeMountState:    operationexecutor.VolumeMounted,
 	}
-	logger, _ := ktesting.NewTestContext(t)
-	dswp.actualStateOfWorld.MarkVolumeAsAttached(logger, opts.VolumeName, opts.VolumeSpec, "fake-node", "")
+	dswp.actualStateOfWorld.MarkVolumeAsAttached(opts.VolumeName, opts.VolumeSpec, "fake-node", "")
 	dswp.actualStateOfWorld.MarkVolumeAsMounted(opts)
 
 	dswp.findAndAddNewPods()
@@ -288,7 +289,7 @@ func TestFindAndAddNewPods_WithReprocessPodAndVolumeRetrievalError(t *testing.T)
 	if !dswp.podPreviouslyProcessed(podName) {
 		t.Fatalf("Failed to record that the volumes for the specified pod: %s have been processed by the populator", podName)
 	}
-	fakePodManager.RemovePod(pod)
+	fakePodManager.DeletePod(pod)
 }
 
 func TestFindAndAddNewPods_WithVolumeRetrievalError(t *testing.T) {
@@ -324,22 +325,17 @@ func TestFindAndAddNewPods_WithVolumeRetrievalError(t *testing.T) {
 	}
 }
 
-type mutablePodManager interface {
-	GetPodByName(string, string) (*v1.Pod, bool)
-	RemovePod(*v1.Pod)
-}
-
 func TestFindAndAddNewPods_FindAndRemoveDeletedPods(t *testing.T) {
 	dswp, fakePodState, pod, expectedVolumeName, _ := prepareDSWPWithPodPV(t)
 	podName := util.GetUniquePodName(pod)
 
 	//let the pod be terminated
-	podGet, exist := dswp.podManager.(mutablePodManager).GetPodByName(pod.Namespace, pod.Name)
+	podGet, exist := dswp.podManager.GetPodByName(pod.Namespace, pod.Name)
 	if !exist {
 		t.Fatalf("Failed to get pod by pod name: %s and namespace: %s", pod.Name, pod.Namespace)
 	}
 	podGet.Status.Phase = v1.PodFailed
-	dswp.podManager.(mutablePodManager).RemovePod(pod)
+	dswp.podManager.DeletePod(pod)
 
 	dswp.findAndRemoveDeletedPods()
 
@@ -353,15 +349,6 @@ func TestFindAndAddNewPods_FindAndRemoveDeletedPods(t *testing.T) {
 	dswp.findAndRemoveDeletedPods()
 	if dswp.pods.processedPods[podName] {
 		t.Fatalf("Failed to remove pods from desired state of world since they no longer exist")
-	}
-
-	// podWorker may call volume_manager WaitForUnmount() after we processed the pod in findAndRemoveDeletedPods()
-	dswp.ReprocessPod(podName)
-	dswp.findAndRemoveDeletedPods()
-
-	// findAndRemoveDeletedPods() above must detect orphaned pod and delete it from the map
-	if _, ok := dswp.pods.processedPods[podName]; ok {
-		t.Fatalf("Failed to remove orphanded pods from internal map")
 	}
 
 	volumeExists := dswp.desiredStateOfWorld.VolumeExists(expectedVolumeName, "" /* SELinuxContext */)
@@ -395,7 +382,7 @@ func TestFindAndRemoveDeletedPodsWithActualState(t *testing.T) {
 	podName := util.GetUniquePodName(pod)
 
 	//let the pod be terminated
-	podGet, exist := dswp.podManager.(mutablePodManager).GetPodByName(pod.Namespace, pod.Name)
+	podGet, exist := dswp.podManager.GetPodByName(pod.Namespace, pod.Name)
 	if !exist {
 		t.Fatalf("Failed to get pod by pod name: %s and namespace: %s", pod.Name, pod.Namespace)
 	}
@@ -457,12 +444,12 @@ func TestFindAndRemoveDeletedPodsWithUncertain(t *testing.T) {
 	podName := util.GetUniquePodName(pod)
 
 	//let the pod be terminated
-	podGet, exist := dswp.podManager.(mutablePodManager).GetPodByName(pod.Namespace, pod.Name)
+	podGet, exist := dswp.podManager.GetPodByName(pod.Namespace, pod.Name)
 	if !exist {
 		t.Fatalf("Failed to get pod by pod name: %s and namespace: %s", pod.Name, pod.Namespace)
 	}
 	podGet.Status.Phase = v1.PodFailed
-	dswp.podManager.(mutablePodManager).RemovePod(pod)
+	dswp.podManager.DeletePod(pod)
 	fakePodState.removed = map[kubetypes.UID]struct{}{pod.UID: {}}
 
 	// Add the volume to ASW by reconciling.
@@ -759,7 +746,7 @@ func TestFindAndAddNewPods_FindAndRemoveDeletedPods_Valid_Block_VolumeDevices(t 
 		t.Fatalf("Failed to get pod by pod name: %s and namespace: %s", pod.Name, pod.Namespace)
 	}
 	podGet.Status.Phase = v1.PodFailed
-	fakePodManager.RemovePod(pod)
+	fakePodManager.DeletePod(pod)
 	fakePodState.removed = map[kubetypes.UID]struct{}{pod.UID: {}}
 
 	//pod is added to fakePodManager but pod state knows the pod is removed, so here findAndRemoveDeletedPods() will remove the pod and volumes it is mounted
@@ -1189,6 +1176,7 @@ func TestCheckVolumeFSResize(t *testing.T) {
 }
 
 func TestCheckVolumeSELinux(t *testing.T) {
+	defer featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, features.ReadWriteOncePod, true)()
 	defer featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, features.SELinuxMountReadWriteOncePod, true)()
 	fullOpts := &v1.SELinuxOptions{
 		User:  "system_u",
@@ -1294,7 +1282,7 @@ func TestCheckVolumeSELinux(t *testing.T) {
 			pvc := &v1.PersistentVolumeClaim{
 				Spec: v1.PersistentVolumeClaimSpec{
 					VolumeName: pv.Name,
-					Resources: v1.VolumeResourceRequirements{
+					Resources: v1.ResourceRequirements{
 						Requests: pv.Spec.Capacity,
 					},
 					AccessModes: tc.accessModes,
@@ -1391,7 +1379,7 @@ func createResizeRelatedVolumes(volumeMode *v1.PersistentVolumeMode) (pv *v1.Per
 	pvc = &v1.PersistentVolumeClaim{
 		Spec: v1.PersistentVolumeClaimSpec{
 			VolumeName: pv.Name,
-			Resources: v1.VolumeResourceRequirements{
+			Resources: v1.ResourceRequirements{
 				Requests: pv.Spec.Capacity,
 			},
 		},
@@ -1408,9 +1396,8 @@ func volumeCapacity(size int) v1.ResourceList {
 }
 
 func reconcileASW(asw cache.ActualStateOfWorld, dsw cache.DesiredStateOfWorld, t *testing.T) {
-	logger, _ := ktesting.NewTestContext(t)
 	for _, volumeToMount := range dsw.GetVolumesToMount() {
-		err := asw.MarkVolumeAsAttached(logger, volumeToMount.VolumeName, volumeToMount.VolumeSpec, "", "")
+		err := asw.MarkVolumeAsAttached(volumeToMount.VolumeName, volumeToMount.VolumeSpec, "", "")
 		if err != nil {
 			t.Fatalf("Unexpected error when MarkVolumeAsAttached: %v", err)
 		}
@@ -1560,7 +1547,7 @@ func createEphemeralVolumeObjects(podName, volumeName string, owned bool, volume
 		},
 		Spec: v1.PersistentVolumeClaimSpec{
 			VolumeName: volumeName,
-			Resources: v1.VolumeResourceRequirements{
+			Resources: v1.ResourceRequirements{
 				Requests: pv.Spec.Capacity,
 			},
 		},
@@ -1617,7 +1604,10 @@ func createDswpWithVolumeWithCustomPluginMgr(t *testing.T, pv *v1.PersistentVolu
 		return true, pv, nil
 	})
 
-	fakePodManager := kubepod.NewBasicPodManager()
+	fakeSecretManager := secret.NewFakeManager()
+	fakeConfigMapManager := configmap.NewFakeManager()
+	fakePodManager := kubepod.NewBasicPodManager(
+		podtest.NewFakeMirrorClient(), fakeSecretManager, fakeConfigMapManager)
 
 	seLinuxTranslator := util.NewFakeSELinuxLabelTranslator()
 	fakesDSW := cache.NewDesiredStateOfWorld(fakeVolumePluginMgr, seLinuxTranslator)
@@ -1627,12 +1617,13 @@ func createDswpWithVolumeWithCustomPluginMgr(t *testing.T, pv *v1.PersistentVolu
 
 	csiTranslator := csitrans.New()
 	dswp := &desiredStateOfWorldPopulator{
-		kubeClient:          fakeClient,
-		loopSleepDuration:   100 * time.Millisecond,
-		podManager:          fakePodManager,
-		podStateProvider:    fakeStateProvider,
-		desiredStateOfWorld: fakesDSW,
-		actualStateOfWorld:  fakeASW,
+		kubeClient:                fakeClient,
+		loopSleepDuration:         100 * time.Millisecond,
+		getPodStatusRetryDuration: 2 * time.Second,
+		podManager:                fakePodManager,
+		podStateProvider:          fakeStateProvider,
+		desiredStateOfWorld:       fakesDSW,
+		actualStateOfWorld:        fakeASW,
 		pods: processedPods{
 			processedPods: make(map[types.UniquePodName]bool)},
 		kubeContainerRuntime:     fakeRuntime,

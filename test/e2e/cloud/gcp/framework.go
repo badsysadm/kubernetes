@@ -16,7 +16,9 @@ limitations under the License.
 
 package gcp
 
-import "k8s.io/kubernetes/test/e2e/framework"
+import "github.com/onsi/ginkgo/v2"
 
 // SIGDescribe annotates the test with the SIG label.
-var SIGDescribe = framework.SIGDescribe("cloud-provider-gcp")
+func SIGDescribe(text string, body func()) bool {
+	return ginkgo.Describe("[sig-cloud-provider-gcp] "+text, body)
+}

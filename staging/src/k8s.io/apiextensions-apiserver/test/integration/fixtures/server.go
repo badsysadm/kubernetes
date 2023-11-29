@@ -17,6 +17,7 @@ limitations under the License.
 package fixtures
 
 import (
+	"io/ioutil"
 	"os"
 	"strings"
 	"time"
@@ -31,8 +32,6 @@ import (
 	serveroptions "k8s.io/apiextensions-apiserver/pkg/cmd/server/options"
 	servertesting "k8s.io/apiextensions-apiserver/pkg/cmd/server/testing"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	genericapiserver "k8s.io/apiserver/pkg/server"
-	storagevalue "k8s.io/apiserver/pkg/storage/value"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/rest"
 )
@@ -56,7 +55,7 @@ func StartDefaultServerWithConfigAccess(t servertesting.Logger, flags ...string)
 
 func startDefaultServer(t servertesting.Logger, flags ...string) (func(), servertesting.TestServer, error) {
 	// create kubeconfig which will not actually be used. But authz/authn needs it to startup.
-	fakeKubeConfig, err := os.CreateTemp("", "kubeconfig")
+	fakeKubeConfig, err := ioutil.TempFile("", "kubeconfig")
 	if err != nil {
 		return nil, servertesting.TestServer{}, err
 	}
@@ -88,8 +87,6 @@ users:
 		"--authentication-kubeconfig", fakeKubeConfig.Name(),
 		"--authorization-kubeconfig", fakeKubeConfig.Name(),
 		"--kubeconfig", fakeKubeConfig.Name(),
-		// disable admission and filters that require talking to kube-apiserver
-		"--enable-priority-and-fairness=false",
 		"--disable-admission-plugins", "NamespaceLifecycle,MutatingAdmissionWebhook,ValidatingAdmissionWebhook"},
 		flags...,
 	), nil)
@@ -147,15 +144,10 @@ func StartDefaultServerWithClientsAndEtcd(t servertesting.Logger, extraFlags ...
 		return nil, nil, nil, nil, "", err
 	}
 
-	var resourceTransformers storagevalue.ResourceTransformers
-	if len(options.RecommendedOptions.Etcd.EncryptionProviderConfigFilepath) != 0 {
-		// be clever in tests to reconstruct the transformers, for encryption integration tests
-		config := genericapiserver.Config{}
-		options.RecommendedOptions.Etcd.ApplyTo(&config)
-		resourceTransformers = config.ResourceTransformers
+	RESTOptionsGetter, err := serveroptions.NewCRDRESTOptionsGetter(*options.RecommendedOptions.Etcd)
+	if err != nil {
+		return nil, nil, nil, nil, "", err
 	}
-
-	RESTOptionsGetter := serveroptions.NewCRDRESTOptionsGetter(*options.RecommendedOptions.Etcd, resourceTransformers, nil)
 	restOptions, err := RESTOptionsGetter.GetRESTOptions(schema.GroupResource{Group: "hopefully-ignored-group", Resource: "hopefully-ignored-resources"})
 	if err != nil {
 		return nil, nil, nil, nil, "", err

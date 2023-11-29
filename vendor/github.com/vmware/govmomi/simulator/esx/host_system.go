@@ -52,7 +52,7 @@ var HostSystem = mo.HostSystem{
 		DynamicData:       types.DynamicData{},
 		ConnectionState:   "connected",
 		PowerState:        "poweredOn",
-		StandbyMode:       "none",
+		StandbyMode:       "",
 		InMaintenanceMode: false,
 		BootTime:          (*time.Time)(nil),
 		HealthSystemRuntime: &types.HealthSystemRuntime{

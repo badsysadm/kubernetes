@@ -62,7 +62,7 @@ func Example() {
 
 		// Let's implement a simple controller that just deletes
 		// everything that comes in.
-		Process: func(obj interface{}, isInInitialList bool) error {
+		Process: func(obj interface{}) error {
 			// Obj is from the Pop method of the Queue we make above.
 			newest := obj.(Deltas).Newest()
 
@@ -137,8 +137,8 @@ func ExampleNewInformer() {
 		source,
 		&v1.Pod{},
 		time.Millisecond*100,
-		ResourceEventHandlerDetailedFuncs{
-			AddFunc: func(obj interface{}, isInInitialList bool) {
+		ResourceEventHandlerFuncs{
+			AddFunc: func(obj interface{}) {
 				source.Delete(obj.(runtime.Object))
 			},
 			DeleteFunc: func(obj interface{}) {
@@ -213,8 +213,8 @@ func TestHammerController(t *testing.T) {
 		source,
 		&v1.Pod{},
 		time.Millisecond*100,
-		ResourceEventHandlerDetailedFuncs{
-			AddFunc:    func(obj interface{}, isInInitialList bool) { recordFunc("add", obj) },
+		ResourceEventHandlerFuncs{
+			AddFunc:    func(obj interface{}) { recordFunc("add", obj) },
 			UpdateFunc: func(oldObj, newObj interface{}) { recordFunc("update", newObj) },
 			DeleteFunc: func(obj interface{}) { recordFunc("delete", obj) },
 		},
@@ -416,8 +416,8 @@ func TestPanicPropagated(t *testing.T) {
 		source,
 		&v1.Pod{},
 		time.Millisecond*100,
-		ResourceEventHandlerDetailedFuncs{
-			AddFunc: func(obj interface{}, isInInitialList bool) {
+		ResourceEventHandlerFuncs{
+			AddFunc: func(obj interface{}) {
 				// Create a panic.
 				panic("Just panic.")
 			},
@@ -526,8 +526,8 @@ func TestTransformingInformer(t *testing.T) {
 		source,
 		&v1.Pod{},
 		0,
-		ResourceEventHandlerDetailedFuncs{
-			AddFunc:    func(obj interface{}, isInInitialList bool) { recordEvent(watch.Added, nil, obj) },
+		ResourceEventHandlerFuncs{
+			AddFunc:    func(obj interface{}) { recordEvent(watch.Added, nil, obj) },
 			UpdateFunc: func(oldObj, newObj interface{}) { recordEvent(watch.Modified, oldObj, newObj) },
 			DeleteFunc: func(obj interface{}) { recordEvent(watch.Deleted, obj, nil) },
 		},

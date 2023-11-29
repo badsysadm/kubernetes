@@ -18,6 +18,7 @@ package testing
 
 import (
 	"crypto"
+	"crypto/x509"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -28,7 +29,6 @@ import (
 	"sync"
 	"testing"
 
-	kubeadmapi "k8s.io/kubernetes/cmd/kubeadm/app/apis/kubeadm"
 	"k8s.io/kubernetes/cmd/kubeadm/app/util/pkiutil"
 )
 
@@ -39,7 +39,7 @@ func RunWithPrivateKeyFixtureDirectory(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-// Reset indicates a new test is starting and previously returned private key fixtures may be reused.
+// Reset() indicates a new test is starting and previously returned private key fixtures may be reused.
 func Reset() {
 	lock.Lock()
 	defer lock.Unlock()
@@ -75,7 +75,7 @@ func install() (cleanup func()) {
 	}
 }
 
-func newPrivateKey(keyType kubeadmapi.EncryptionAlgorithmType) (crypto.Signer, error) {
+func newPrivateKey(keyType x509.PublicKeyAlgorithm) (crypto.Signer, error) {
 	lock.Lock()
 	defer lock.Unlock()
 
@@ -108,7 +108,7 @@ func newPrivateKey(keyType kubeadmapi.EncryptionAlgorithmType) (crypto.Signer, e
 
 	keyName := ""
 	switch keyType {
-	case kubeadmapi.EncryptionAlgorithmECDSA:
+	case x509.ECDSA:
 		ecdsa++
 		keyName = fmt.Sprintf("%d.ecdsa", ecdsa)
 	default:

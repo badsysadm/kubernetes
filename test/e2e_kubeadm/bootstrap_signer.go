@@ -17,8 +17,6 @@ limitations under the License.
 package kubeadm
 
 import (
-	"context"
-
 	"k8s.io/kubernetes/test/e2e/framework"
 	admissionapi "k8s.io/pod-security-admission/api"
 
@@ -35,13 +33,13 @@ var _ = Describe("bootstrap signer", func() {
 
 	// Get an instance of the k8s test framework
 	f := framework.NewDefaultFramework("bootstrap token")
-	f.NamespacePodSecurityLevel = admissionapi.LevelPrivileged
+	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 
 	// Tests in this container are not expected to create new objects in the cluster
 	// so we are disabling the creation of a namespace in order to get a faster execution
 	f.SkipNamespaceCreation = true
 
-	ginkgo.It("should be active", func(ctx context.Context) {
+	ginkgo.It("should be active", func() {
 		//NB. this is technically implemented a part of the control-plane phase
 		//    and more specifically if the controller manager is properly configured,
 		//    the bootstrapsigner controller is activated and the system:controller:bootstrap-signer

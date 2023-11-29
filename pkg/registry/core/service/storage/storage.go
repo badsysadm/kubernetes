@@ -86,11 +86,10 @@ func NewREST(
 	proxyTransport http.RoundTripper) (*REST, *StatusREST, *svcreg.ProxyREST, error) {
 
 	store := &genericregistry.Store{
-		NewFunc:                   func() runtime.Object { return &api.Service{} },
-		NewListFunc:               func() runtime.Object { return &api.ServiceList{} },
-		DefaultQualifiedResource:  api.Resource("services"),
-		SingularQualifiedResource: api.Resource("service"),
-		ReturnDeletedObject:       true,
+		NewFunc:                  func() runtime.Object { return &api.Service{} },
+		NewListFunc:              func() runtime.Object { return &api.ServiceList{} },
+		DefaultQualifiedResource: api.Resource("services"),
+		ReturnDeletedObject:      true,
 
 		CreateStrategy:      svcreg.Strategy,
 		UpdateStrategy:      svcreg.Strategy,
@@ -126,11 +125,6 @@ func NewREST(
 	store.AfterDelete = genericStore.afterDelete
 	store.BeginCreate = genericStore.beginCreate
 	store.BeginUpdate = genericStore.beginUpdate
-
-	// users can patch the status to remove the finalizer,
-	// hence statusStore must participate on the AfterDelete
-	// hook to release the allocated resources
-	statusStore.AfterDelete = genericStore.afterDelete
 
 	return genericStore, &StatusREST{store: &statusStore}, &svcreg.ProxyREST{Redirector: genericStore, ProxyTransport: proxyTransport}, nil
 }
@@ -470,7 +464,7 @@ func (r *REST) ResourceLocation(ctx context.Context, id string) (*url.URL, http.
 				// but in the expected case we'll only make one.
 				for try := 0; try < len(ss.Addresses); try++ {
 					addr := ss.Addresses[(addrSeed+try)%len(ss.Addresses)]
-					// We only proxy to addresses that are actually pods.
+					// TODO(thockin): do we really need this check?
 					if err := isValidAddress(ctx, &addr, r.pods); err != nil {
 						utilruntime.HandleError(fmt.Errorf("Address %v isn't valid (%v)", addr, err))
 						continue
@@ -658,7 +652,7 @@ func needsHCNodePort(svc *api.Service) bool {
 	if svc.Spec.Type != api.ServiceTypeLoadBalancer {
 		return false
 	}
-	if svc.Spec.ExternalTrafficPolicy != api.ServiceExternalTrafficPolicyLocal {
+	if svc.Spec.ExternalTrafficPolicy != api.ServiceExternalTrafficPolicyTypeLocal {
 		return false
 	}
 	return true

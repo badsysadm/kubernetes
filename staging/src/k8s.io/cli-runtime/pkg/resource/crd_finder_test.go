@@ -56,7 +56,7 @@ func TestCRDFinderErrors(t *testing.T) {
 	}
 	finder := NewCRDFinder(getter)
 	found, err := finder.HasCRD(schema.GroupKind{Group: "", Kind: "Pod"})
-	if found {
+	if found == true {
 		t.Fatalf("Found the CRD with non-working getter function")
 	}
 	if err == nil {

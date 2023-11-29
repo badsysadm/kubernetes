@@ -39,12 +39,11 @@ type REST struct {
 }
 
 // NewREST returns a RESTStorage object that will work against service accounts.
-func NewREST(optsGetter generic.RESTOptionsGetter, issuer token.TokenGenerator, auds authenticator.Audiences, max time.Duration, podStorage, secretStorage, nodeStorage rest.Getter, extendExpiration bool) (*REST, error) {
+func NewREST(optsGetter generic.RESTOptionsGetter, issuer token.TokenGenerator, auds authenticator.Audiences, max time.Duration, podStorage, secretStorage *genericregistry.Store, extendExpiration bool) (*REST, error) {
 	store := &genericregistry.Store{
-		NewFunc:                   func() runtime.Object { return &api.ServiceAccount{} },
-		NewListFunc:               func() runtime.Object { return &api.ServiceAccountList{} },
-		DefaultQualifiedResource:  api.Resource("serviceaccounts"),
-		SingularQualifiedResource: api.Resource("serviceaccount"),
+		NewFunc:                  func() runtime.Object { return &api.ServiceAccount{} },
+		NewListFunc:              func() runtime.Object { return &api.ServiceAccountList{} },
+		DefaultQualifiedResource: api.Resource("serviceaccounts"),
 
 		CreateStrategy:      serviceaccount.Strategy,
 		UpdateStrategy:      serviceaccount.Strategy,
@@ -64,7 +63,6 @@ func NewREST(optsGetter generic.RESTOptionsGetter, issuer token.TokenGenerator, 
 			svcaccts:             store,
 			pods:                 podStorage,
 			secrets:              secretStorage,
-			nodes:                nodeStorage,
 			issuer:               issuer,
 			auds:                 auds,
 			audsSet:              sets.NewString(auds...),

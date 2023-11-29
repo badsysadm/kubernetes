@@ -17,7 +17,6 @@ limitations under the License.
 package apimachinery
 
 import (
-	"context"
 	"io"
 	"net/http"
 	"strings"
@@ -34,9 +33,9 @@ const (
 
 var _ = SIGDescribe("Server request timeout", func() {
 	f := framework.NewDefaultFramework("request-timeout")
-	f.NamespacePodSecurityLevel = admissionapi.LevelPrivileged
+	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 
-	ginkgo.It("should return HTTP status code 400 if the user specifies an invalid timeout in the request URL", func(ctx context.Context) {
+	ginkgo.It("should return HTTP status code 400 if the user specifies an invalid timeout in the request URL", func() {
 		rt := getRoundTripper(f)
 		req := newRequest(f, "invalid")
 
@@ -54,7 +53,7 @@ var _ = SIGDescribe("Server request timeout", func() {
 		}
 	})
 
-	ginkgo.It("the request should be served with a default timeout if the specified timeout in the request URL exceeds maximum allowed", func(ctx context.Context) {
+	ginkgo.It("the request should be served with a default timeout if the specified timeout in the request URL exceeds maximum allowed", func() {
 		rt := getRoundTripper(f)
 		// Choose a timeout that exceeds the default timeout (60s) enforced by the apiserver
 		req := newRequest(f, "3m")
@@ -68,7 +67,7 @@ var _ = SIGDescribe("Server request timeout", func() {
 		}
 	})
 
-	ginkgo.It("default timeout should be used if the specified timeout in the request URL is 0s", func(ctx context.Context) {
+	ginkgo.It("default timeout should be used if the specified timeout in the request URL is 0s", func() {
 		rt := getRoundTripper(f)
 		req := newRequest(f, "0s")
 

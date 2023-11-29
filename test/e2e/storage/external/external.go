@@ -41,7 +41,7 @@ import (
 	"k8s.io/kubernetes/test/e2e/storage/testsuites"
 	"k8s.io/kubernetes/test/e2e/storage/utils"
 
-	"github.com/onsi/gomega"
+	"github.com/onsi/ginkgo/v2"
 )
 
 // DriverDefinition needs to be filled in via a .yaml or .json
@@ -169,12 +169,10 @@ func AddDriverDefinition(filename string) error {
 		return fmt.Errorf("%q: DriverInfo.Name not set", filename)
 	}
 
-	args := []interface{}{"External Storage"}
-	args = append(args, storageframework.GetDriverNameWithFeatureTags(driver)...)
-	args = append(args, func() {
+	description := "External Storage " + storageframework.GetDriverNameWithFeatureTags(driver)
+	ginkgo.Describe(description, func() {
 		storageframework.DefineTestSuites(driver, testsuites.CSISuites)
 	})
-	framework.Describe(args)
 
 	return nil
 }
@@ -272,7 +270,7 @@ func (d *driverDefinition) SkipUnsupportedTest(pattern storageframework.TestPatt
 
 }
 
-func (d *driverDefinition) GetDynamicProvisionStorageClass(ctx context.Context, e2econfig *storageframework.PerTestConfig, fsType string) *storagev1.StorageClass {
+func (d *driverDefinition) GetDynamicProvisionStorageClass(e2econfig *storageframework.PerTestConfig, fsType string) *storagev1.StorageClass {
 	var (
 		sc  *storagev1.StorageClass
 		err error
@@ -283,13 +281,13 @@ func (d *driverDefinition) GetDynamicProvisionStorageClass(ctx context.Context, 
 	case d.StorageClass.FromName:
 		sc = &storagev1.StorageClass{Provisioner: d.DriverInfo.Name}
 	case d.StorageClass.FromExistingClassName != "":
-		sc, err = f.ClientSet.StorageV1().StorageClasses().Get(ctx, d.StorageClass.FromExistingClassName, metav1.GetOptions{})
+		sc, err = f.ClientSet.StorageV1().StorageClasses().Get(context.TODO(), d.StorageClass.FromExistingClassName, metav1.GetOptions{})
 		framework.ExpectNoError(err, "getting storage class %s", d.StorageClass.FromExistingClassName)
 	case d.StorageClass.FromFile != "":
 		var ok bool
 		items, err := utils.LoadFromManifests(d.StorageClass.FromFile)
 		framework.ExpectNoError(err, "load storage class from %s", d.StorageClass.FromFile)
-		gomega.Expect(items).To(gomega.HaveLen(1), "exactly one item from %s", d.StorageClass.FromFile)
+		framework.ExpectEqual(len(items), 1, "exactly one item from %s", d.StorageClass.FromFile)
 		err = utils.PatchItems(f, f.Namespace, items...)
 		framework.ExpectNoError(err, "patch items")
 
@@ -299,7 +297,7 @@ func (d *driverDefinition) GetDynamicProvisionStorageClass(ctx context.Context, 
 		}
 	}
 
-	gomega.Expect(sc).ToNot(gomega.BeNil(), "storage class is unexpectantly nil")
+	framework.ExpectNotEqual(sc, nil, "storage class is unexpectantly nil")
 
 	if fsType != "" {
 		if sc.Parameters == nil {
@@ -313,7 +311,7 @@ func (d *driverDefinition) GetDynamicProvisionStorageClass(ctx context.Context, 
 }
 
 func (d *driverDefinition) GetTimeouts() *framework.TimeoutContext {
-	timeouts := framework.NewTimeoutContext()
+	timeouts := framework.NewTimeoutContextWithDefaults()
 	if d.Timeouts == nil {
 		return timeouts
 	}
@@ -362,7 +360,7 @@ func loadSnapshotClass(filename string) (*unstructured.Unstructured, error) {
 	return snapshotClass, nil
 }
 
-func (d *driverDefinition) GetSnapshotClass(ctx context.Context, e2econfig *storageframework.PerTestConfig, parameters map[string]string) *unstructured.Unstructured {
+func (d *driverDefinition) GetSnapshotClass(e2econfig *storageframework.PerTestConfig, parameters map[string]string) *unstructured.Unstructured {
 	if !d.SnapshotClass.FromName && d.SnapshotClass.FromFile == "" && d.SnapshotClass.FromExistingClassName == "" {
 		e2eskipper.Skipf("Driver %q does not support snapshotting - skipping", d.DriverInfo.Name)
 	}
@@ -375,7 +373,7 @@ func (d *driverDefinition) GetSnapshotClass(ctx context.Context, e2econfig *stor
 	case d.SnapshotClass.FromName:
 		// Do nothing (just use empty parameters)
 	case d.SnapshotClass.FromExistingClassName != "":
-		snapshotClass, err := f.DynamicClient.Resource(utils.SnapshotClassGVR).Get(ctx, d.SnapshotClass.FromExistingClassName, metav1.GetOptions{})
+		snapshotClass, err := f.DynamicClient.Resource(utils.SnapshotClassGVR).Get(context.TODO(), d.SnapshotClass.FromExistingClassName, metav1.GetOptions{})
 		framework.ExpectNoError(err, "getting snapshot class %s", d.SnapshotClass.FromExistingClassName)
 
 		if params, ok := snapshotClass.Object["parameters"].(map[string]interface{}); ok {
@@ -417,19 +415,12 @@ func (d *driverDefinition) GetCSIDriverName(e2econfig *storageframework.PerTestC
 	return d.DriverInfo.Name
 }
 
-func (d *driverDefinition) PrepareTest(ctx context.Context, f *framework.Framework) *storageframework.PerTestConfig {
+func (d *driverDefinition) PrepareTest(f *framework.Framework) *storageframework.PerTestConfig {
 	e2econfig := &storageframework.PerTestConfig{
 		Driver:              d,
 		Prefix:              "external",
 		Framework:           f,
 		ClientNodeSelection: e2epod.NodeSelection{Name: d.ClientNodeName},
 	}
-
-	if framework.NodeOSDistroIs("windows") {
-		e2econfig.ClientNodeSelection.Selector = map[string]string{"kubernetes.io/os": "windows"}
-	} else {
-		e2econfig.ClientNodeSelection.Selector = map[string]string{"kubernetes.io/os": "linux"}
-	}
-
 	return e2econfig
 }

@@ -29,7 +29,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
-	"k8s.io/cli-runtime/pkg/genericiooptions"
 	"k8s.io/cli-runtime/pkg/printers"
 	"k8s.io/cli-runtime/pkg/resource"
 	cmdutil "k8s.io/kubectl/pkg/cmd/util"
@@ -46,6 +45,7 @@ type SetSelectorOptions struct {
 	PrintFlags           *genericclioptions.PrintFlags
 	RecordFlags          *genericclioptions.RecordFlags
 	dryRunStrategy       cmdutil.DryRunStrategy
+	dryRunVerifier       *resource.QueryParamVerifier
 	fieldManager         string
 
 	// set by args
@@ -60,7 +60,7 @@ type SetSelectorOptions struct {
 	ResourceFinder genericclioptions.ResourceFinder
 
 	// set at initialization
-	genericiooptions.IOStreams
+	genericclioptions.IOStreams
 }
 
 var (
@@ -78,7 +78,7 @@ var (
 )
 
 // NewSelectorOptions returns an initialized SelectorOptions instance
-func NewSelectorOptions(streams genericiooptions.IOStreams) *SetSelectorOptions {
+func NewSelectorOptions(streams genericclioptions.IOStreams) *SetSelectorOptions {
 	return &SetSelectorOptions{
 		ResourceBuilderFlags: genericclioptions.NewResourceBuilderFlags().
 			WithScheme(scheme.Scheme).
@@ -95,7 +95,7 @@ func NewSelectorOptions(streams genericiooptions.IOStreams) *SetSelectorOptions 
 }
 
 // NewCmdSelector is the "set selector" command.
-func NewCmdSelector(f cmdutil.Factory, streams genericiooptions.IOStreams) *cobra.Command {
+func NewCmdSelector(f cmdutil.Factory, streams genericclioptions.IOStreams) *cobra.Command {
 	o := NewSelectorOptions(streams)
 
 	cmd := &cobra.Command{
@@ -136,6 +136,11 @@ func (o *SetSelectorOptions) Complete(f cmdutil.Factory, cmd *cobra.Command, arg
 	if err != nil {
 		return err
 	}
+	dynamicClient, err := f.DynamicClient()
+	if err != nil {
+		return err
+	}
+	o.dryRunVerifier = resource.NewQueryParamVerifier(dynamicClient, f.OpenAPIGetter(), resource.QueryParamDryRun)
 
 	o.resources, o.selector, err = getResourcesAndSelector(args)
 	if err != nil {
@@ -210,6 +215,11 @@ func (o *SetSelectorOptions) RunSelector() error {
 		}
 		if !o.WriteToServer {
 			return o.PrintObj(info.Object, o.Out)
+		}
+		if o.dryRunStrategy == cmdutil.DryRunServer {
+			if err := o.dryRunVerifier.HasSupport(info.Mapping.GroupVersionKind); err != nil {
+				return err
+			}
 		}
 
 		actual, err := resource.

@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -138,8 +139,6 @@ func setUp(t *testing.T) (Config, *assert.Assertions) {
 
 	config.OpenAPIConfig = DefaultOpenAPIConfig(testGetOpenAPIDefinitions, openapinamer.NewDefinitionNamer(runtime.NewScheme()))
 	config.OpenAPIConfig.Info.Version = "unversioned"
-	config.OpenAPIV3Config = DefaultOpenAPIV3Config(testGetOpenAPIDefinitions, openapinamer.NewDefinitionNamer(runtime.NewScheme()))
-	config.OpenAPIV3Config.Info.Version = "unversioned"
 	sharedInformers := informers.NewSharedInformerFactory(clientset, config.LoopbackClientConfig.Timeout)
 	config.Complete(sharedInformers)
 
@@ -232,7 +231,7 @@ func TestInstallAPIGroups(t *testing.T) {
 			continue
 		}
 
-		body, err := io.ReadAll(resp.Body)
+		body, err := ioutil.ReadAll(resp.Body)
 		if err != nil {
 			t.Errorf("[%d] unexpected error reading body at path %q: %v", i, path, err)
 			continue
@@ -276,7 +275,7 @@ func TestInstallAPIGroups(t *testing.T) {
 			continue
 		}
 
-		body, err = io.ReadAll(resp.Body)
+		body, err = ioutil.ReadAll(resp.Body)
 		if err != nil {
 			t.Errorf("[%d] unexpected error reading body at path %q: %v", i, path, err)
 			continue
@@ -338,7 +337,7 @@ func TestPrepareRun(t *testing.T) {
 		// healthz checks are installed in PrepareRun
 		resp, err = http.Get(server.URL + "/healthz")
 		assert.NoError(err)
-		data, _ := io.ReadAll(resp.Body)
+		data, _ := ioutil.ReadAll(resp.Body)
 		if http.StatusOK != resp.StatusCode {
 			t.Logf("got %d", resp.StatusCode)
 			t.Log(string(data))
@@ -367,7 +366,7 @@ func TestUpdateOpenAPISpec(t *testing.T) {
 	assert.NoError(err)
 	assert.Equal(http.StatusOK, resp.StatusCode)
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := ioutil.ReadAll(resp.Body)
 	assert.NoError(err)
 	assert.Equal(oldSpec, body)
 	resp.Body.Close()
@@ -386,7 +385,7 @@ func TestUpdateOpenAPISpec(t *testing.T) {
 	defer resp.Body.Close()
 	assert.Equal(http.StatusOK, resp.StatusCode)
 
-	body, err = io.ReadAll(resp.Body)
+	body, err = ioutil.ReadAll(resp.Body)
 	assert.NoError(err)
 	assert.Equal(newSpec, body)
 }
@@ -552,10 +551,6 @@ func (p *testGetterStorage) Get(ctx context.Context, name string, options *metav
 	return nil, nil
 }
 
-func (p *testGetterStorage) GetSingularName() string {
-	return "getter"
-}
-
 type testNoVerbsStorage struct {
 	Version string
 }
@@ -574,10 +569,6 @@ func (p *testNoVerbsStorage) New() runtime.Object {
 }
 
 func (p *testNoVerbsStorage) Destroy() {
-}
-
-func (p *testNoVerbsStorage) GetSingularName() string {
-	return "noverb"
 }
 
 func fakeVersion() version.Info {
@@ -603,7 +594,7 @@ func TestGracefulShutdown(t *testing.T) {
 	wg.Add(1)
 
 	config.BuildHandlerChainFunc = func(apiHandler http.Handler, c *Config) http.Handler {
-		handler := genericfilters.WithWaitGroup(apiHandler, c.LongRunningFunc, c.NonLongRunningRequestWaitGroup)
+		handler := genericfilters.WithWaitGroup(apiHandler, c.LongRunningFunc, c.HandlerChainWaitGroup)
 		handler = genericapifilters.WithRequestInfo(handler, c.RequestInfoResolver)
 		return handler
 	}
@@ -667,7 +658,7 @@ func TestGracefulShutdown(t *testing.T) {
 	}
 
 	// wait for wait group handler finish
-	s.NonLongRunningRequestWaitGroup.Wait()
+	s.HandlerChainWaitGroup.Wait()
 	<-stoppedCh
 
 	// check server all handlers finished.

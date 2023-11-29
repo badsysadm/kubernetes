@@ -20,33 +20,24 @@ limitations under the License.
 package e2enode
 
 import (
-	"context"
-
 	"github.com/onsi/ginkgo/v2"
 
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/uuid"
-	admissionapi "k8s.io/pod-security-admission/api"
-
 	kubeletconfig "k8s.io/kubernetes/pkg/kubelet/apis/config"
 	"k8s.io/kubernetes/test/e2e/framework"
 	e2eoutput "k8s.io/kubernetes/test/e2e/framework/pod/output"
+	admissionapi "k8s.io/pod-security-admission/api"
 )
-
-// SeccompProcStatusField is the field of /proc/$PID/status referencing the seccomp filter type.
-const SeccompProcStatusField = "Seccomp:"
-
-// ProcSelfStatusPath is the path to /proc/self/status.
-const ProcSelfStatusPath = "/proc/self/status"
 
 // Serial because the test updates kubelet configuration.
 var _ = SIGDescribe("SeccompDefault [Serial] [Feature:SeccompDefault] [LinuxOnly]", func() {
 	f := framework.NewDefaultFramework("seccompdefault-test")
-	f.NamespacePodSecurityLevel = admissionapi.LevelPrivileged
+	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 
 	ginkgo.Context("with SeccompDefault enabled", func() {
-		tempSetCurrentKubeletConfig(f, func(ctx context.Context, cfg *kubeletconfig.KubeletConfiguration) {
+		tempSetCurrentKubeletConfig(f, func(cfg *kubeletconfig.KubeletConfiguration) {
 			cfg.SeccompDefault = true
 		})
 
@@ -60,7 +51,7 @@ var _ = SIGDescribe("SeccompDefault [Serial] [Feature:SeccompDefault] [LinuxOnly
 						{
 							Name:            name,
 							Image:           busyboxImage,
-							Command:         []string{"grep", SeccompProcStatusField, ProcSelfStatusPath},
+							Command:         []string{"grep", "Seccomp:", "/proc/self/status"},
 							SecurityContext: securityContext,
 						},
 					},
@@ -68,14 +59,14 @@ var _ = SIGDescribe("SeccompDefault [Serial] [Feature:SeccompDefault] [LinuxOnly
 			}
 		}
 
-		ginkgo.It("should use the default seccomp profile when unspecified", func(ctx context.Context) {
+		ginkgo.It("should use the default seccomp profile when unspecified", func() {
 			pod := newPod(nil)
-			e2eoutput.TestContainerOutput(ctx, f, "SeccompDefault", pod, 0, []string{"2"})
+			e2eoutput.TestContainerOutput(f, "SeccompDefault", pod, 0, []string{"2"})
 		})
 
-		ginkgo.It("should use unconfined when specified", func(ctx context.Context) {
+		ginkgo.It("should use unconfined when specified", func() {
 			pod := newPod(&v1.SecurityContext{SeccompProfile: &v1.SeccompProfile{Type: v1.SeccompProfileTypeUnconfined}})
-			e2eoutput.TestContainerOutput(ctx, f, "SeccompDefault-unconfined", pod, 0, []string{"0"})
+			e2eoutput.TestContainerOutput(f, "SeccompDefault-unconfined", pod, 0, []string{"0"})
 		})
 	})
 })

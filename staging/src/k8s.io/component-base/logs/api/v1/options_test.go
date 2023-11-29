@@ -32,31 +32,20 @@ import (
 	"k8s.io/klog/v2"
 )
 
-func TestReapply(t *testing.T) {
-	oldReapplyHandling := ReapplyHandling
-	defer func() {
-		ReapplyHandling = oldReapplyHandling
-		if err := ResetForTest(nil /* feature gates */); err != nil {
-			t.Errorf("Unexpected error resetting the logging configuration: %v", err)
-		}
-	}()
-
-	newOptions := NewLoggingConfiguration()
-	if err := ValidateAndApply(newOptions, nil); err != nil {
-		t.Errorf("unexpected error for first ValidateAndApply: %v", err)
-	}
-	ReapplyHandling = ReapplyHandlingError
-	if err := ValidateAndApply(newOptions, nil); err == nil {
-		t.Error("did not get expected error for second ValidateAndApply")
-	}
-	ReapplyHandling = ReapplyHandlingIgnoreUnchanged
-	if err := ValidateAndApply(newOptions, nil); err != nil {
-		t.Errorf("unexpected error for third ValidateAndApply: %v", err)
-	}
-	modifiedOptions := newOptions.DeepCopy()
-	modifiedOptions.Verbosity = 100
-	if err := ValidateAndApply(modifiedOptions, nil); err == nil {
-		t.Errorf("unexpected success for forth ValidateAndApply, should have complained about modified config")
+func TestFlags(t *testing.T) {
+	c := NewLoggingConfiguration()
+	fs := pflag.NewFlagSet("addflagstest", pflag.ContinueOnError)
+	output := bytes.Buffer{}
+	AddFlags(c, fs)
+	fs.SetOutput(&output)
+	fs.PrintDefaults()
+	want := `      --log-flush-frequency duration   Maximum number of seconds between log flushes (default 5s)
+      --logging-format string          Sets the log format. Permitted formats: "text". (default "text")
+  -v, --v Level                        number for the log level verbosity
+      --vmodule pattern=N,...          comma-separated list of pattern=N settings for file-filtered logging (only works for text log format)
+`
+	if !assert.Equal(t, want, output.String()) {
+		t.Errorf("Wrong list of flags. expect %q, got %q", want, output.String())
 	}
 }
 
@@ -103,11 +92,6 @@ func TestOptions(t *testing.T) {
 			if !assert.Equal(t, tc.want, c) {
 				t.Errorf("Wrong Validate() result for %q. expect %v, got %v", tc.name, tc.want, c)
 			}
-			defer func() {
-				if err := ResetForTest(nil /* feature gates */); err != nil {
-					t.Errorf("Unexpected error resetting the logging configuration: %v", err)
-				}
-			}()
 			errs := ValidateAndApply(c, nil /* We don't care about feature gates here. */)
 			defer klog.StopFlushDaemon()
 			if !assert.ElementsMatch(t, tc.errs, errs) {
@@ -168,33 +152,6 @@ $`, buffer.String())
 $`, buffer.String())
 	})
 
-	t.Run("AddGoFlags", func(t *testing.T) {
-		newOptions := NewLoggingConfiguration()
-		var fs flag.FlagSet
-		var buffer bytes.Buffer
-		AddGoFlags(newOptions, &fs)
-		fs.SetOutput(&buffer)
-		fs.PrintDefaults()
-		// In contrast to copying through VisitAll, the type of some options is now
-		// known:
-		// -log-flush-frequency duration
-		//   	Maximum number of seconds between log flushes (default 5s)
-		// -logging-format string
-		//   	Sets the log format. Permitted formats: "text". (default "text")
-		// -v value
-		//   	number for the log level verbosity
-		// -vmodule value
-		//   	comma-separated list of pattern=N settings for file-filtered logging (only works for text log format)
-		assert.Regexp(t, `^.*-log-flush-frequency.*duration.*
-.*default 5s.*
-.*-logging-format.*string.*
-.*default.*text.*
-.*-v.*
-.*
-.*-vmodule.*
-.*
-$`, buffer.String())
-	})
 }
 
 func TestContextualLogging(t *testing.T) {
@@ -215,11 +172,6 @@ func testContextualLogging(t *testing.T, enabled bool) {
 	AddFeatureGates(featureGate)
 	err = featureGate.SetFromMap(map[string]bool{string(ContextualLogging): enabled})
 	require.NoError(t, err)
-	defer func() {
-		if err := ResetForTest(nil /* feature gates */); err != nil {
-			t.Errorf("Unexpected error resetting the logging configuration: %v", err)
-		}
-	}()
 	err = ValidateAndApply(c, featureGate)
 	require.NoError(t, err)
 	defer klog.StopFlushDaemon()

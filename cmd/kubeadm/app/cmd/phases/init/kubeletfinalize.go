@@ -26,7 +26,6 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/klog/v2"
 
-	kubeadmapi "k8s.io/kubernetes/cmd/kubeadm/app/apis/kubeadm"
 	"k8s.io/kubernetes/cmd/kubeadm/app/cmd/options"
 	"k8s.io/kubernetes/cmd/kubeadm/app/cmd/phases/workflow"
 	cmdutil "k8s.io/kubernetes/cmd/kubeadm/app/cmd/util"
@@ -79,8 +78,8 @@ func runKubeletFinalizeCertRotation(c workflow.RunData) error {
 	// If yes, use that path, else use the kubeadm provided value.
 	cfg := data.Cfg()
 	pkiPath := filepath.Join(data.KubeletDir(), "pki")
-	val, idx := kubeadmapi.GetArgValue(cfg.NodeRegistration.KubeletExtraArgs, "cert-dir", -1)
-	if idx > -1 {
+	val, ok := cfg.NodeRegistration.KubeletExtraArgs["cert-dir"]
+	if ok {
 		pkiPath = val
 	}
 

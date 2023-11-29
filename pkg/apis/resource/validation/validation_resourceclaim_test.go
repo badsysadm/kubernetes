@@ -315,7 +315,6 @@ func TestValidateClaimUpdate(t *testing.T) {
 }
 
 func TestValidateClaimStatusUpdate(t *testing.T) {
-	invalidName := "!@#$%^"
 	validClaim := testClaim("foo", "ns", resource.ResourceClaimSpec{
 		ResourceClassName: "valid",
 		AllocationMode:    resource.AllocationModeImmediate,
@@ -325,18 +324,8 @@ func TestValidateClaimStatusUpdate(t *testing.T) {
 	validAllocatedClaim.Status = resource.ResourceClaimStatus{
 		DriverName: "valid",
 		Allocation: &resource.AllocationResult{
-			ResourceHandles: func() []resource.ResourceHandle {
-				var handles []resource.ResourceHandle
-				for i := 0; i < resource.AllocationResultResourceHandlesMaxSize; i++ {
-					handle := resource.ResourceHandle{
-						DriverName: "valid",
-						Data:       strings.Repeat(" ", resource.ResourceHandleDataMaxSize),
-					}
-					handles = append(handles, handle)
-				}
-				return handles
-			}(),
-			Shareable: true,
+			ResourceHandle: strings.Repeat(" ", resource.ResourceHandleMaxSize),
+			Shareable:      true,
 		},
 	}
 
@@ -370,60 +359,18 @@ func TestValidateClaimStatusUpdate(t *testing.T) {
 			update: func(claim *resource.ResourceClaim) *resource.ResourceClaim {
 				claim.Status.DriverName = "valid"
 				claim.Status.Allocation = &resource.AllocationResult{
-					ResourceHandles: []resource.ResourceHandle{
-						{
-							DriverName: "valid",
-							Data:       strings.Repeat(" ", resource.ResourceHandleDataMaxSize),
-						},
-					},
+					ResourceHandle: strings.Repeat(" ", resource.ResourceHandleMaxSize),
 				}
 				return claim
 			},
 		},
-		"invalid-allocation-resourceHandles": {
-			wantFailures: field.ErrorList{field.TooLongMaxLength(field.NewPath("status", "allocation", "resourceHandles"), resource.AllocationResultResourceHandlesMaxSize+1, resource.AllocationResultResourceHandlesMaxSize)},
+		"invalid-allocation-handle": {
+			wantFailures: field.ErrorList{field.TooLongMaxLength(field.NewPath("status", "allocation", "resourceHandle"), resource.ResourceHandleMaxSize+1, resource.ResourceHandleMaxSize)},
 			oldClaim:     validClaim,
 			update: func(claim *resource.ResourceClaim) *resource.ResourceClaim {
 				claim.Status.DriverName = "valid"
 				claim.Status.Allocation = &resource.AllocationResult{
-					ResourceHandles: func() []resource.ResourceHandle {
-						var handles []resource.ResourceHandle
-						for i := 0; i < resource.AllocationResultResourceHandlesMaxSize+1; i++ {
-							handles = append(handles, resource.ResourceHandle{DriverName: "valid"})
-						}
-						return handles
-					}(),
-				}
-				return claim
-			},
-		},
-		"invalid-allocation-resource-handle-drivername": {
-			wantFailures: field.ErrorList{field.Invalid(field.NewPath("status", "allocation", "resourceHandles[0]", "driverName"), invalidName, "a lowercase RFC 1123 subdomain must consist of lower case alphanumeric characters, '-' or '.', and must start and end with an alphanumeric character (e.g. 'example.com', regex used for validation is '[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*')")},
-			oldClaim:     validClaim,
-			update: func(claim *resource.ResourceClaim) *resource.ResourceClaim {
-				claim.Status.DriverName = "valid"
-				claim.Status.Allocation = &resource.AllocationResult{
-					ResourceHandles: []resource.ResourceHandle{
-						{
-							DriverName: invalidName,
-						},
-					},
-				}
-				return claim
-			},
-		},
-		"invalid-allocation-resource-handle-data": {
-			wantFailures: field.ErrorList{field.TooLongMaxLength(field.NewPath("status", "allocation", "resourceHandles[0]", "data"), resource.ResourceHandleDataMaxSize+1, resource.ResourceHandleDataMaxSize)},
-			oldClaim:     validClaim,
-			update: func(claim *resource.ResourceClaim) *resource.ResourceClaim {
-				claim.Status.DriverName = "valid"
-				claim.Status.Allocation = &resource.AllocationResult{
-					ResourceHandles: []resource.ResourceHandle{
-						{
-							DriverName: "valid",
-							Data:       strings.Repeat(" ", resource.ResourceHandleDataMaxSize+1),
-						},
-					},
+					ResourceHandle: strings.Repeat(" ", resource.ResourceHandleMaxSize+1),
 				}
 				return claim
 			},
@@ -617,18 +564,6 @@ func TestValidateClaimStatusUpdate(t *testing.T) {
 				return claim
 			},
 		},
-		"remove-allocation": {
-			oldClaim: func() *resource.ResourceClaim {
-				claim := validAllocatedClaim.DeepCopy()
-				claim.Status.DeallocationRequested = true
-				return claim
-			}(),
-			update: func(claim *resource.ResourceClaim) *resource.ResourceClaim {
-				claim.Status.DeallocationRequested = false
-				claim.Status.Allocation = nil
-				return claim
-			},
-		},
 		"invalid-deallocation-requested-removal": {
 			wantFailures: field.ErrorList{field.Forbidden(field.NewPath("status", "deallocationRequested"), "may not be cleared when `allocation` is set")},
 			oldClaim: func() *resource.ResourceClaim {
@@ -638,32 +573,6 @@ func TestValidateClaimStatusUpdate(t *testing.T) {
 			}(),
 			update: func(claim *resource.ResourceClaim) *resource.ResourceClaim {
 				claim.Status.DeallocationRequested = false
-				return claim
-			},
-		},
-		"invalid-allocation-modification": {
-			wantFailures: field.ErrorList{field.Invalid(field.NewPath("status.allocation"), func() *resource.AllocationResult {
-				claim := validAllocatedClaim.DeepCopy()
-				claim.Status.Allocation.ResourceHandles = []resource.ResourceHandle{
-					{
-						DriverName: "valid",
-						Data:       strings.Repeat(" ", resource.ResourceHandleDataMaxSize/2),
-					},
-				}
-				return claim.Status.Allocation
-			}(), "field is immutable")},
-			oldClaim: func() *resource.ResourceClaim {
-				claim := validAllocatedClaim.DeepCopy()
-				claim.Status.DeallocationRequested = false
-				return claim
-			}(),
-			update: func(claim *resource.ResourceClaim) *resource.ResourceClaim {
-				claim.Status.Allocation.ResourceHandles = []resource.ResourceHandle{
-					{
-						DriverName: "valid",
-						Data:       strings.Repeat(" ", resource.ResourceHandleDataMaxSize/2),
-					},
-				}
 				return claim
 			},
 		},

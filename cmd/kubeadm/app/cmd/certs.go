@@ -134,11 +134,8 @@ func (o *genCSRConfig) addFlagSet(flagSet *pflag.FlagSet) {
 func (o *genCSRConfig) load() (err error) {
 	o.kubeadmConfig, err = configutil.LoadOrDefaultInitConfiguration(
 		o.kubeadmConfigPath,
-		&kubeadmapiv1.InitConfiguration{},
+		cmdutil.DefaultInitConfiguration(),
 		&kubeadmapiv1.ClusterConfiguration{},
-		configutil.LoadOrDefaultConfigurationOptions{
-			SkipCRIDetect: true,
-		},
 	)
 	if err != nil {
 		return err
@@ -277,7 +274,7 @@ func getRenewSubCommands(out io.Writer, kdir string) []*cobra.Command {
 				return err
 			}
 
-			// Get a renewal manager for an actual Cluster configuration
+			// Get a renewal manager for a actual Cluster configuration
 			rm, err := renewal.NewManager(&internalcfg.ClusterConfiguration, kdir)
 			if err != nil {
 				return err
@@ -355,10 +352,8 @@ func getInternalCfg(cfgPath string, kubeconfigPath string, cfg kubeadmapiv1.Clus
 		}
 	}
 
-	// Read config from --config if provided. Otherwise, use the default configuration
-	return configutil.LoadOrDefaultInitConfiguration(cfgPath, &kubeadmapiv1.InitConfiguration{}, &cfg, configutil.LoadOrDefaultConfigurationOptions{
-		SkipCRIDetect: true,
-	})
+	// Otherwise read config from --config if provided, otherwise use default configuration
+	return configutil.LoadOrDefaultInitConfiguration(cfgPath, cmdutil.DefaultInitConfiguration(), &cfg)
 }
 
 // newCmdCertsExpiration creates a new `cert check-expiration` command.

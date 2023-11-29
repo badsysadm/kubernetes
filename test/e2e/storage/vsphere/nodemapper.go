@@ -22,7 +22,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/onsi/ginkgo/v2"
 	"github.com/vmware/govmomi/object"
 	"github.com/vmware/govmomi/vapi/rest"
 	"github.com/vmware/govmomi/vapi/tags"
@@ -36,9 +35,6 @@ import (
 
 // NodeMapper contains information to generate nameToNodeInfo and vcToZoneDatastore maps
 type NodeMapper struct {
-	nodeInfoRWLock        *sync.RWMutex
-	nameToNodeInfo        map[string]*NodeInfo
-	vcToZoneDatastoresMap map[string](map[string][]string)
 }
 
 // NodeInfo contains information about vcenter nodes
@@ -57,14 +53,10 @@ const (
 	hostSystemType             = "HostSystem"
 )
 
-// NewNodeMapper returns a new NodeMapper
-func NewNodeMapper() *NodeMapper {
-	return &NodeMapper{
-		nodeInfoRWLock:        &sync.RWMutex{},
-		nameToNodeInfo:        make(map[string]*NodeInfo),
-		vcToZoneDatastoresMap: make(map[string](map[string][]string)),
-	}
-}
+var (
+	nameToNodeInfo        = make(map[string]*NodeInfo)
+	vcToZoneDatastoresMap = make(map[string](map[string][]string))
+)
 
 // GenerateNodeMap populates node name to node info map
 func (nm *NodeMapper) GenerateNodeMap(vSphereInstances map[string]*VSphere, nodeList v1.NodeList) error {
@@ -115,7 +107,6 @@ func (nm *NodeMapper) GenerateNodeMap(vSphereInstances map[string]*VSphere, node
 
 	for _, node := range nodeList.Items {
 		n := node
-		wg.Add(1)
 		go func() {
 			nodeUUID := getUUIDFromProviderID(n.Spec.ProviderID)
 			framework.Logf("Searching for node with UUID: %s", nodeUUID)
@@ -140,10 +131,11 @@ func (nm *NodeMapper) GenerateNodeMap(vSphereInstances map[string]*VSphere, node
 			}
 			wg.Done()
 		}()
+		wg.Add(1)
 	}
 	wg.Wait()
 
-	if len(nm.nameToNodeInfo) != len(nodeList.Items) {
+	if len(nameToNodeInfo) != len(nodeList.Items) {
 		return errors.New("all nodes not mapped to respective vSphere")
 	}
 	return nil
@@ -156,7 +148,7 @@ func withTagsClient(ctx context.Context, connection *VSphere, f func(c *rest.Cli
 	if err := c.Login(ctx, user); err != nil {
 		return err
 	}
-	ginkgo.DeferCleanup(c.Logout)
+	defer c.Logout(ctx)
 	return f(c)
 }
 
@@ -227,7 +219,7 @@ func (nm *NodeMapper) GenerateZoneToDatastoreMap() error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	// 3. Populate vcToZoneHostsMap and vcToHostDatastoresMap
-	for _, nodeInfo := range nm.nameToNodeInfo {
+	for _, nodeInfo := range nameToNodeInfo {
 		vc := nodeInfo.VSphere.Config.Hostname
 		host := nodeInfo.HostSystemRef.Value
 		for _, zone := range nodeInfo.Zones {
@@ -254,13 +246,13 @@ func (nm *NodeMapper) GenerateZoneToDatastoreMap() error {
 	for vc, zoneToHostsMap := range vcToZoneHostsMap {
 		for zone, hosts := range zoneToHostsMap {
 			commonDatastores := retrieveCommonDatastoresAmongHosts(hosts, vcToHostDatastoresMap[vc])
-			if nm.vcToZoneDatastoresMap[vc] == nil {
-				nm.vcToZoneDatastoresMap[vc] = make(map[string][]string)
+			if vcToZoneDatastoresMap[vc] == nil {
+				vcToZoneDatastoresMap[vc] = make(map[string][]string)
 			}
-			nm.vcToZoneDatastoresMap[vc][zone] = commonDatastores
+			vcToZoneDatastoresMap[vc][zone] = commonDatastores
 		}
 	}
-	framework.Logf("Zone to datastores map : %+v", nm.vcToZoneDatastoresMap)
+	framework.Logf("Zone to datastores map : %+v", vcToZoneDatastoresMap)
 	return nil
 }
 
@@ -284,21 +276,15 @@ func retrieveCommonDatastoresAmongHosts(hosts []string, hostToDatastoresMap map[
 
 // GetDatastoresInZone returns all the datastores in the specified zone
 func (nm *NodeMapper) GetDatastoresInZone(vc string, zone string) []string {
-	nm.nodeInfoRWLock.RLock()
-	defer nm.nodeInfoRWLock.RUnlock()
-	return nm.vcToZoneDatastoresMap[vc][zone]
+	return vcToZoneDatastoresMap[vc][zone]
 }
 
 // GetNodeInfo returns NodeInfo for given nodeName
 func (nm *NodeMapper) GetNodeInfo(nodeName string) *NodeInfo {
-	nm.nodeInfoRWLock.RLock()
-	defer nm.nodeInfoRWLock.RUnlock()
-	return nm.nameToNodeInfo[nodeName]
+	return nameToNodeInfo[nodeName]
 }
 
 // SetNodeInfo sets NodeInfo for given nodeName. This function is not thread safe. Users need to handle concurrency.
 func (nm *NodeMapper) SetNodeInfo(nodeName string, nodeInfo *NodeInfo) {
-	nm.nodeInfoRWLock.Lock()
-	defer nm.nodeInfoRWLock.Unlock()
-	nm.nameToNodeInfo[nodeName] = nodeInfo
+	nameToNodeInfo[nodeName] = nodeInfo
 }

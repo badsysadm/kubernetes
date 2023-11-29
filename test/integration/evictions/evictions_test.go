@@ -57,7 +57,6 @@ import (
 	"k8s.io/kubernetes/pkg/controller/disruption"
 	"k8s.io/kubernetes/pkg/features"
 	"k8s.io/kubernetes/test/integration/framework"
-	"k8s.io/kubernetes/test/utils/ktesting"
 )
 
 const (
@@ -69,16 +68,14 @@ const (
 func TestConcurrentEvictionRequests(t *testing.T) {
 	podNameFormat := "test-pod-%d"
 
-	_, ctx := ktesting.NewTestContext(t)
-	ctx, cancel := context.WithCancel(ctx)
-
-	closeFn, rm, informers, _, clientSet := rmSetup(ctx, t)
+	closeFn, rm, informers, _, clientSet := rmSetup(t)
 	defer closeFn()
 
 	ns := framework.CreateNamespaceOrDie(clientSet, "concurrent-eviction-requests", t)
 	defer framework.DeleteNamespaceOrDie(clientSet, ns, t)
-	defer cancel()
 
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	informers.Start(ctx.Done())
 	go rm.Run(ctx)
 
@@ -184,16 +181,14 @@ func TestConcurrentEvictionRequests(t *testing.T) {
 
 // TestTerminalPodEviction ensures that PDB is not checked for terminal pods.
 func TestTerminalPodEviction(t *testing.T) {
-	_, ctx := ktesting.NewTestContext(t)
-	ctx, cancel := context.WithCancel(ctx)
-
-	closeFn, rm, informers, _, clientSet := rmSetup(ctx, t)
+	closeFn, rm, informers, _, clientSet := rmSetup(t)
 	defer closeFn()
 
 	ns := framework.CreateNamespaceOrDie(clientSet, "terminalpod-eviction", t)
 	defer framework.DeleteNamespaceOrDie(clientSet, ns, t)
-	defer cancel()
 
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	informers.Start(ctx.Done())
 	go rm.Run(ctx)
 
@@ -260,13 +255,11 @@ func TestTerminalPodEviction(t *testing.T) {
 
 // TestEvictionVersions ensures the eviction endpoint accepts and returns the correct API versions
 func TestEvictionVersions(t *testing.T) {
-	_, ctx := ktesting.NewTestContext(t)
-	ctx, cancel := context.WithCancel(ctx)
-
-	closeFn, rm, informers, config, clientSet := rmSetup(ctx, t)
+	closeFn, rm, informers, config, clientSet := rmSetup(t)
 	defer closeFn()
-	defer cancel()
 
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	informers.Start(ctx.Done())
 	go rm.Run(ctx)
 
@@ -386,17 +379,15 @@ func TestEvictionWithFinalizers(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			_, ctx := ktesting.NewTestContext(t)
-			ctx, cancel := context.WithCancel(ctx)
-
-			closeFn, rm, informers, _, clientSet := rmSetup(ctx, t)
+			closeFn, rm, informers, _, clientSet := rmSetup(t)
 			defer closeFn()
 
 			ns := framework.CreateNamespaceOrDie(clientSet, "eviction-with-finalizers", t)
 			defer framework.DeleteNamespaceOrDie(clientSet, ns, t)
 			defer featuregatetesting.SetFeatureGateDuringTest(t, feature.DefaultFeatureGate, features.PodDisruptionConditions, tc.enablePodDisruptionConditions)()
-			defer cancel()
 
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
 			informers.Start(ctx.Done())
 			go rm.Run(ctx)
 
@@ -430,9 +421,9 @@ func TestEvictionWithFinalizers(t *testing.T) {
 				t.Fatalf("Failed to get the pod %q with error: %q", klog.KObj(pod), e)
 			}
 			_, cond := podutil.GetPodCondition(&updatedPod.Status, v1.PodConditionType(v1.DisruptionTarget))
-			if tc.wantDisruptionTargetCond && cond == nil {
+			if tc.wantDisruptionTargetCond == true && cond == nil {
 				t.Errorf("Pod %q does not have the expected condition: %q", klog.KObj(updatedPod), v1.DisruptionTarget)
-			} else if !tc.wantDisruptionTargetCond && cond != nil {
+			} else if tc.wantDisruptionTargetCond == false && cond != nil {
 				t.Errorf("Pod %q has an unexpected condition: %q", klog.KObj(updatedPod), v1.DisruptionTarget)
 			}
 		})
@@ -474,17 +465,15 @@ func TestEvictionWithUnhealthyPodEvictionPolicy(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			_, ctx := ktesting.NewTestContext(t)
-			ctx, cancel := context.WithCancel(ctx)
-
 			defer featuregatetesting.SetFeatureGateDuringTest(t, feature.DefaultFeatureGate, features.PDBUnhealthyPodEvictionPolicy, tc.enableUnhealthyPodEvictionPolicy)()
-			closeFn, rm, informers, _, clientSet := rmSetup(ctx, t)
+			closeFn, rm, informers, _, clientSet := rmSetup(t)
 			defer closeFn()
 
 			ns := framework.CreateNamespaceOrDie(clientSet, "eviction-with-pdb-pod-healthy-policy", t)
 			defer framework.DeleteNamespaceOrDie(clientSet, ns, t)
-			defer cancel()
 
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
 			informers.Start(ctx.Done())
 			go rm.Run(ctx)
 
@@ -570,15 +559,13 @@ func TestEvictionWithPrecondition(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			_, ctx := ktesting.NewTestContext(t)
-			ctx, cancel := context.WithCancel(ctx)
-
-			closeFn, rm, informers, _, clientSet := rmSetup(ctx, t)
+			closeFn, rm, informers, _, clientSet := rmSetup(t)
 			defer closeFn()
 
 			ns := framework.CreateNamespaceOrDie(clientSet, "eviction-with-preconditions", t)
 			defer framework.DeleteNamespaceOrDie(clientSet, ns, t)
 
+			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			informers.Start(ctx.Done())
 			go rm.Run(ctx)
@@ -698,7 +685,7 @@ func newV1Eviction(ns, evictionName string, deleteOption metav1.DeleteOptions) *
 	}
 }
 
-func rmSetup(ctx context.Context, t *testing.T) (kubeapiservertesting.TearDownFunc, *disruption.DisruptionController, informers.SharedInformerFactory, *restclient.Config, clientset.Interface) {
+func rmSetup(t *testing.T) (kubeapiservertesting.TearDownFunc, *disruption.DisruptionController, informers.SharedInformerFactory, *restclient.Config, clientset.Interface) {
 	// Disable ServiceAccount admission plugin as we don't have serviceaccount controller running.
 	server := kubeapiservertesting.StartTestServerOrDie(t, nil, []string{"--disable-admission-plugins=ServiceAccount"}, framework.SharedEtcd())
 
@@ -722,7 +709,6 @@ func rmSetup(ctx context.Context, t *testing.T) (kubeapiservertesting.TearDownFu
 	}
 
 	rm := disruption.NewDisruptionController(
-		ctx,
 		informers.Core().V1().Pods(),
 		informers.Policy().V1().PodDisruptionBudgets(),
 		informers.Core().V1().ReplicationControllers(),

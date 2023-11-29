@@ -74,9 +74,9 @@ func removeWorkerNodes(zone string) error {
 	return nil
 }
 
-func verifyRCs(ctx context.Context, c clientset.Interface, ns string, names []string) {
+func verifyRCs(c clientset.Interface, ns string, names []string) {
 	for _, name := range names {
-		framework.ExpectNoError(e2epod.VerifyPods(ctx, c, ns, name, true, 1))
+		framework.ExpectNoError(e2epod.VerifyPods(c, ns, name, true, 1))
 	}
 }
 
@@ -124,9 +124,9 @@ func generateMasterRegexp(prefix string) string {
 }
 
 // waitForMasters waits until the cluster has the desired number of ready masters in it.
-func waitForMasters(ctx context.Context, masterPrefix string, c clientset.Interface, size int, timeout time.Duration) error {
+func waitForMasters(masterPrefix string, c clientset.Interface, size int, timeout time.Duration) error {
 	for start := time.Now(); time.Since(start) < timeout; time.Sleep(20 * time.Second) {
-		nodes, err := c.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
+		nodes, err := c.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{})
 		if err != nil {
 			framework.Logf("Failed to list nodes: %v", err)
 			continue
@@ -162,34 +162,34 @@ func waitForMasters(ctx context.Context, masterPrefix string, c clientset.Interf
 
 var _ = SIGDescribe("HA-master [Feature:HAMaster]", func() {
 	f := framework.NewDefaultFramework("ha-master")
-	f.NamespacePodSecurityLevel = admissionapi.LevelPrivileged
+	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	var c clientset.Interface
 	var ns string
 	var additionalReplicaZones []string
 	var additionalNodesZones []string
 	var existingRCs []string
 
-	ginkgo.BeforeEach(func(ctx context.Context) {
+	ginkgo.BeforeEach(func() {
 		e2eskipper.SkipUnlessProviderIs("gce")
 		c = f.ClientSet
 		ns = f.Namespace.Name
-		framework.ExpectNoError(waitForMasters(ctx, framework.TestContext.CloudConfig.MasterName, c, 1, 10*time.Minute))
+		framework.ExpectNoError(waitForMasters(framework.TestContext.CloudConfig.MasterName, c, 1, 10*time.Minute))
 		additionalReplicaZones = make([]string, 0)
 		existingRCs = make([]string, 0)
 	})
 
-	ginkgo.AfterEach(func(ctx context.Context) {
+	ginkgo.AfterEach(func() {
 		// Clean-up additional worker nodes if the test execution was broken.
 		for _, zone := range additionalNodesZones {
 			removeWorkerNodes(zone)
 		}
-		framework.ExpectNoError(e2enode.AllNodesReady(ctx, c, 5*time.Minute))
+		framework.ExpectNoError(e2enode.AllNodesReady(c, 5*time.Minute))
 
 		// Clean-up additional master replicas if the test execution was broken.
 		for _, zone := range additionalReplicaZones {
 			removeMasterReplica(zone)
 		}
-		framework.ExpectNoError(waitForMasters(ctx, framework.TestContext.CloudConfig.MasterName, c, 1, 10*time.Minute))
+		framework.ExpectNoError(waitForMasters(framework.TestContext.CloudConfig.MasterName, c, 1, 10*time.Minute))
 	})
 
 	type Action int
@@ -201,7 +201,7 @@ var _ = SIGDescribe("HA-master [Feature:HAMaster]", func() {
 		RemoveNodes
 	)
 
-	step := func(ctx context.Context, action Action, zone string) {
+	step := func(action Action, zone string) {
 		switch action {
 		case None:
 		case AddReplica:
@@ -217,58 +217,58 @@ var _ = SIGDescribe("HA-master [Feature:HAMaster]", func() {
 			framework.ExpectNoError(removeWorkerNodes(zone))
 			additionalNodesZones = removeZoneFromZones(additionalNodesZones, zone)
 		}
-		framework.ExpectNoError(waitForMasters(ctx, framework.TestContext.CloudConfig.MasterName, c, len(additionalReplicaZones)+1, 10*time.Minute))
-		framework.ExpectNoError(e2enode.AllNodesReady(ctx, c, 5*time.Minute))
+		framework.ExpectNoError(waitForMasters(framework.TestContext.CloudConfig.MasterName, c, len(additionalReplicaZones)+1, 10*time.Minute))
+		framework.ExpectNoError(e2enode.AllNodesReady(c, 5*time.Minute))
 
 		// Verify that API server works correctly with HA master.
 		rcName := "ha-master-" + strconv.Itoa(len(existingRCs))
 		createNewRC(c, ns, rcName)
 		existingRCs = append(existingRCs, rcName)
-		verifyRCs(ctx, c, ns, existingRCs)
+		verifyRCs(c, ns, existingRCs)
 	}
 
-	ginkgo.It("survive addition/removal replicas same zone [Serial][Disruptive]", func(ctx context.Context) {
+	ginkgo.It("survive addition/removal replicas same zone [Serial][Disruptive]", func() {
 		zone := framework.TestContext.CloudConfig.Zone
-		step(ctx, None, "")
+		step(None, "")
 		numAdditionalReplicas := 2
 		for i := 0; i < numAdditionalReplicas; i++ {
-			step(ctx, AddReplica, zone)
+			step(AddReplica, zone)
 		}
 		for i := 0; i < numAdditionalReplicas; i++ {
-			step(ctx, RemoveReplica, zone)
+			step(RemoveReplica, zone)
 		}
 	})
 
-	ginkgo.It("survive addition/removal replicas different zones [Serial][Disruptive]", func(ctx context.Context) {
+	ginkgo.It("survive addition/removal replicas different zones [Serial][Disruptive]", func() {
 		zone := framework.TestContext.CloudConfig.Zone
 		region := findRegionForZone(zone)
 		zones := findZonesForRegion(region)
 		zones = removeZoneFromZones(zones, zone)
 
-		step(ctx, None, "")
+		step(None, "")
 		// If numAdditionalReplicas is larger then the number of remaining zones in the region,
 		// we create a few masters in the same zone and zone entry is repeated in additionalReplicaZones.
 		numAdditionalReplicas := 2
 		for i := 0; i < numAdditionalReplicas; i++ {
-			step(ctx, AddReplica, zones[i%len(zones)])
+			step(AddReplica, zones[i%len(zones)])
 		}
 		for i := 0; i < numAdditionalReplicas; i++ {
-			step(ctx, RemoveReplica, zones[i%len(zones)])
+			step(RemoveReplica, zones[i%len(zones)])
 		}
 	})
 
-	ginkgo.It("survive addition/removal replicas multizone workers [Serial][Disruptive]", func(ctx context.Context) {
+	ginkgo.It("survive addition/removal replicas multizone workers [Serial][Disruptive]", func() {
 		zone := framework.TestContext.CloudConfig.Zone
 		region := findRegionForZone(zone)
 		zones := findZonesForRegion(region)
 		zones = removeZoneFromZones(zones, zone)
 
-		step(ctx, None, "")
+		step(None, "")
 		numAdditionalReplicas := 2
 
 		// Add worker nodes.
 		for i := 0; i < numAdditionalReplicas && i < len(zones); i++ {
-			step(ctx, AddNodes, zones[i])
+			step(AddNodes, zones[i])
 		}
 
 		// Add master repilcas.
@@ -276,17 +276,17 @@ var _ = SIGDescribe("HA-master [Feature:HAMaster]", func() {
 		// If numAdditionalReplicas is larger then the number of remaining zones in the region,
 		// we create a few masters in the same zone and zone entry is repeated in additionalReplicaZones.
 		for i := 0; i < numAdditionalReplicas; i++ {
-			step(ctx, AddReplica, zones[i%len(zones)])
+			step(AddReplica, zones[i%len(zones)])
 		}
 
 		// Remove master repilcas.
 		for i := 0; i < numAdditionalReplicas; i++ {
-			step(ctx, RemoveReplica, zones[i%len(zones)])
+			step(RemoveReplica, zones[i%len(zones)])
 		}
 
 		// Remove worker nodes.
 		for i := 0; i < numAdditionalReplicas && i < len(zones); i++ {
-			step(ctx, RemoveNodes, zones[i])
+			step(RemoveNodes, zones[i])
 		}
 	})
 })

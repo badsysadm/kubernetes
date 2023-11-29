@@ -34,7 +34,7 @@ type Data interface {
 	Cfg() *kubeadmapi.InitConfiguration
 	IsControlPlaneNode() bool
 	Client() clientset.Interface
-	IgnorePreflightErrors() sets.Set[string]
+	IgnorePreflightErrors() sets.String
 	PatchesDir() string
 	KubeConfigPath() string
 	OutputWriter() io.Writer

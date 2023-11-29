@@ -60,22 +60,20 @@ const (
 	rsaKeySize             = 2048
 )
 
-// CertConfig is a wrapper around certutil.Config extending it with EncryptionAlgorithm.
+// CertConfig is a wrapper around certutil.Config extending it with PublicKeyAlgorithm.
 type CertConfig struct {
 	certutil.Config
-	NotAfter            *time.Time
-	EncryptionAlgorithm kubeadmapi.EncryptionAlgorithmType
+	NotAfter           *time.Time
+	PublicKeyAlgorithm x509.PublicKeyAlgorithm
 }
 
 // NewCertificateAuthority creates new certificate and private key for the certificate authority
 func NewCertificateAuthority(config *CertConfig) (*x509.Certificate, crypto.Signer, error) {
-	key, err := NewPrivateKey(config.EncryptionAlgorithm)
+	key, err := NewPrivateKey(config.PublicKeyAlgorithm)
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "unable to create private key while generating CA certificate")
 	}
 
-	// backdate CA certificate to allow small time jumps
-	config.Config.NotBefore = time.Now().Add(-kubeadmconstants.CertificateBackdate)
 	cert, err := certutil.NewSelfSignedCACert(config.Config, key)
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "unable to create self-signed CA certificate")
@@ -86,7 +84,7 @@ func NewCertificateAuthority(config *CertConfig) (*x509.Certificate, crypto.Sign
 
 // NewIntermediateCertificateAuthority creates new certificate and private key for an intermediate certificate authority
 func NewIntermediateCertificateAuthority(parentCert *x509.Certificate, parentKey crypto.Signer, config *CertConfig) (*x509.Certificate, crypto.Signer, error) {
-	key, err := NewPrivateKey(config.EncryptionAlgorithm)
+	key, err := NewPrivateKey(config.PublicKeyAlgorithm)
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "unable to create private key while generating intermediate CA certificate")
 	}
@@ -105,7 +103,7 @@ func NewCertAndKey(caCert *x509.Certificate, caKey crypto.Signer, config *CertCo
 		return nil, nil, errors.New("must specify at least one ExtKeyUsage")
 	}
 
-	key, err := NewPrivateKey(config.EncryptionAlgorithm)
+	key, err := NewPrivateKey(config.PublicKeyAlgorithm)
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "unable to create private key")
 	}
@@ -120,7 +118,7 @@ func NewCertAndKey(caCert *x509.Certificate, caKey crypto.Signer, config *CertCo
 
 // NewCSRAndKey generates a new key and CSR and that could be signed to create the given certificate
 func NewCSRAndKey(config *CertConfig) (*x509.CertificateRequest, crypto.Signer, error) {
-	key, err := NewPrivateKey(config.EncryptionAlgorithm)
+	key, err := NewPrivateKey(config.PublicKeyAlgorithm)
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "unable to create private key")
 	}
@@ -502,7 +500,7 @@ func getAltNames(cfg *kubeadmapi.InitConfiguration, certName string) (*certutil.
 // valid IP address strings are parsed and added to altNames.IPs as net.IP's
 // RFC-1123 compliant DNS strings are added to altNames.DNSNames as strings
 // RFC-1123 compliant wildcard DNS strings are added to altNames.DNSNames as strings
-// certNames is used to print user facing warnings and should be the name of the cert the altNames will be used for
+// certNames is used to print user facing warnings and should be the name of the cert the altNames will be used for
 func appendSANsToAltNames(altNames *certutil.AltNames, SANs []string, certName string) {
 	for _, altname := range SANs {
 		if ip := netutils.ParseIPSloppy(altname); ip != nil {
@@ -623,9 +621,8 @@ func EncodePublicKeyPEM(key crypto.PublicKey) ([]byte, error) {
 // NewPrivateKey returns a new private key.
 var NewPrivateKey = GeneratePrivateKey
 
-// GeneratePrivateKey is the default function for generating private keys.
-func GeneratePrivateKey(keyType kubeadmapi.EncryptionAlgorithmType) (crypto.Signer, error) {
-	if keyType == kubeadmapi.EncryptionAlgorithmECDSA {
+func GeneratePrivateKey(keyType x509.PublicKeyAlgorithm) (crypto.Signer, error) {
+	if keyType == x509.ECDSA {
 		return ecdsa.GenerateKey(elliptic.P256(), cryptorand.Reader)
 	}
 
@@ -634,12 +631,10 @@ func GeneratePrivateKey(keyType kubeadmapi.EncryptionAlgorithmType) (crypto.Sign
 
 // NewSignedCert creates a signed certificate using the given CA certificate and key
 func NewSignedCert(cfg *CertConfig, key crypto.Signer, caCert *x509.Certificate, caKey crypto.Signer, isCA bool) (*x509.Certificate, error) {
-	// returns a uniform random value in [0, max-1), then add 1 to serial to make it a uniform random value in [1, max).
-	serial, err := cryptorand.Int(cryptorand.Reader, new(big.Int).SetInt64(math.MaxInt64-1))
+	serial, err := cryptorand.Int(cryptorand.Reader, new(big.Int).SetInt64(math.MaxInt64))
 	if err != nil {
 		return nil, err
 	}
-	serial = new(big.Int).Add(serial, big.NewInt(1))
 	if len(cfg.CommonName) == 0 {
 		return nil, errors.New("must specify a CommonName")
 	}
@@ -685,7 +680,7 @@ func RemoveDuplicateAltNames(altNames *certutil.AltNames) {
 	}
 
 	if altNames.DNSNames != nil {
-		altNames.DNSNames = sets.List(sets.New(altNames.DNSNames...))
+		altNames.DNSNames = sets.NewString(altNames.DNSNames...).List()
 	}
 
 	ipsKeys := make(map[string]struct{})

@@ -19,6 +19,7 @@ package util
 import (
 	goerrors "errors"
 	"fmt"
+	"io/ioutil"
 	"net/http"
 	"os"
 	"strings"
@@ -36,6 +37,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/util/diff"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/kubectl/pkg/scheme"
 	"k8s.io/utils/exec"
@@ -154,7 +156,7 @@ func TestMerge(t *testing.T) {
 			if err != nil {
 				t.Errorf("testcase[%d], unexpected error: %v", i, err)
 			} else if !apiequality.Semantic.DeepEqual(test.expected, out) {
-				t.Errorf("\n\ntestcase[%d]\nexpected:\n%s", i, cmp.Diff(test.expected, out))
+				t.Errorf("\n\ntestcase[%d]\nexpected:\n%s", i, diff.ObjectReflectDiff(test.expected, out))
 			}
 		}
 		if test.expectErr && err == nil {
@@ -237,7 +239,7 @@ func TestStrategicMerge(t *testing.T) {
 			if err != nil {
 				t.Errorf("testcase[%d], unexpected error: %v", i, err)
 			} else if !apiequality.Semantic.DeepEqual(test.expected, out) {
-				t.Errorf("\n\ntestcase[%d]\nexpected:\n%s", i, cmp.Diff(test.expected, out))
+				t.Errorf("\n\ntestcase[%d]\nexpected:\n%s", i, diff.ObjectReflectDiff(test.expected, out))
 			}
 		}
 		if test.expectErr && err == nil {
@@ -299,7 +301,7 @@ func TestJSONPatch(t *testing.T) {
 			if err != nil {
 				t.Errorf("testcase[%d], unexpected error: %v", i, err)
 			} else if !apiequality.Semantic.DeepEqual(test.expected, out) {
-				t.Errorf("\n\ntestcase[%d]\nexpected:\n%s", i, cmp.Diff(test.expected, out))
+				t.Errorf("\n\ntestcase[%d]\nexpected:\n%s", i, diff.ObjectReflectDiff(test.expected, out))
 			}
 		}
 		if test.expectErr && err == nil {
@@ -337,7 +339,7 @@ func TestCheckInvalidErr(t *testing.T) {
 			DefaultErrorExitCode,
 		},
 		{
-			&errors.StatusError{ErrStatus: metav1.Status{
+			&errors.StatusError{metav1.Status{
 				Status: metav1.StatusFailure,
 				Code:   http.StatusUnprocessableEntity,
 				Reason: metav1.StatusReasonInvalid,
@@ -348,7 +350,7 @@ func TestCheckInvalidErr(t *testing.T) {
 		},
 		// invalid error that that includes a message but no details
 		{
-			&errors.StatusError{ErrStatus: metav1.Status{
+			&errors.StatusError{metav1.Status{
 				Status: metav1.StatusFailure,
 				Code:   http.StatusUnprocessableEntity,
 				Reason: metav1.StatusReasonInvalid,
@@ -360,7 +362,7 @@ func TestCheckInvalidErr(t *testing.T) {
 		},
 		// webhook response that sets code=422 with no reason
 		{
-			&errors.StatusError{ErrStatus: metav1.Status{
+			&errors.StatusError{metav1.Status{
 				Status:  "Failure",
 				Message: `admission webhook "my.webhook" denied the request without explanation`,
 				Code:    422,
@@ -370,7 +372,7 @@ func TestCheckInvalidErr(t *testing.T) {
 		},
 		// webhook response that sets code=422 with no reason and non-nil details
 		{
-			&errors.StatusError{ErrStatus: metav1.Status{
+			&errors.StatusError{metav1.Status{
 				Status:  "Failure",
 				Message: `admission webhook "my.webhook" denied the request without explanation`,
 				Code:    422,
@@ -381,7 +383,7 @@ func TestCheckInvalidErr(t *testing.T) {
 		},
 		// source-wrapped webhook response that sets code=422 with no reason
 		{
-			AddSourceToErr("creating", "configmap.yaml", &errors.StatusError{ErrStatus: metav1.Status{
+			AddSourceToErr("creating", "configmap.yaml", &errors.StatusError{metav1.Status{
 				Status:  "Failure",
 				Message: `admission webhook "my.webhook" denied the request without explanation`,
 				Code:    422,
@@ -391,7 +393,7 @@ func TestCheckInvalidErr(t *testing.T) {
 		},
 		// webhook response that sets reason=Invalid and code=422 and a message
 		{
-			&errors.StatusError{ErrStatus: metav1.Status{
+			&errors.StatusError{metav1.Status{
 				Status:  "Failure",
 				Reason:  "Invalid",
 				Message: `admission webhook "my.webhook" denied the request without explanation`,
@@ -460,7 +462,7 @@ func testCheckError(t *testing.T, tests []checkErrTestCase) {
 
 func TestDumpReaderToFile(t *testing.T) {
 	testString := "TEST STRING"
-	tempFile, err := os.CreateTemp(os.TempDir(), "hlpers_test_dump_")
+	tempFile, err := ioutil.TempFile(os.TempDir(), "hlpers_test_dump_")
 	if err != nil {
 		t.Errorf("unexpected error setting up a temporary file %v", err)
 	}
@@ -475,7 +477,7 @@ func TestDumpReaderToFile(t *testing.T) {
 	if err != nil {
 		t.Errorf("error in DumpReaderToFile: %v", err)
 	}
-	data, err := os.ReadFile(tempFile.Name())
+	data, err := ioutil.ReadFile(tempFile.Name())
 	if err != nil {
 		t.Errorf("error when reading %s: %v", tempFile.Name(), err)
 	}

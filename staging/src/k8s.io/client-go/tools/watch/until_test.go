@@ -19,7 +19,6 @@ package watch
 import (
 	"context"
 	"errors"
-	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -209,7 +208,7 @@ func TestUntilWithSync(t *testing.T) {
 			conditionFunc: func(e watch.Event) (bool, error) {
 				return true, nil
 			},
-			expectedErr:   wait.ErrWaitTimeout,
+			expectedErr:   errors.New("timed out waiting for the condition"),
 			expectedEvent: nil,
 		},
 		{
@@ -228,7 +227,7 @@ func TestUntilWithSync(t *testing.T) {
 			conditionFunc: func(e watch.Event) (bool, error) {
 				return true, nil
 			},
-			expectedErr:   fmt.Errorf("UntilWithSync: unable to sync caches: %w", context.DeadlineExceeded),
+			expectedErr:   errors.New("UntilWithSync: unable to sync caches: context deadline exceeded"),
 			expectedEvent: nil,
 		},
 		{

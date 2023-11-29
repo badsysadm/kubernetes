@@ -17,7 +17,6 @@ limitations under the License.
 package windows
 
 import (
-	"context"
 	"fmt"
 	"net"
 	"strconv"
@@ -33,12 +32,11 @@ import (
 	admissionapi "k8s.io/pod-security-admission/api"
 
 	"github.com/onsi/ginkgo/v2"
-	"github.com/onsi/gomega"
 )
 
-var _ = sigDescribe("Services", skipUnlessWindows(func() {
+var _ = SIGDescribe("Services", func() {
 	f := framework.NewDefaultFramework("services")
-	f.NamespacePodSecurityLevel = admissionapi.LevelPrivileged
+	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 
 	var cs clientset.Interface
 
@@ -47,16 +45,16 @@ var _ = sigDescribe("Services", skipUnlessWindows(func() {
 		e2eskipper.SkipUnlessNodeOSDistroIs("windows")
 		cs = f.ClientSet
 	})
-	ginkgo.It("should be able to create a functioning NodePort service for Windows", func(ctx context.Context) {
+	ginkgo.It("should be able to create a functioning NodePort service for Windows", func() {
 		serviceName := "nodeport-test"
 		ns := f.Namespace.Name
 
 		jig := e2eservice.NewTestJig(cs, ns, serviceName)
-		nodeIP, err := e2enode.PickIP(ctx, jig.Client)
+		nodeIP, err := e2enode.PickIP(jig.Client)
 		framework.ExpectNoError(err)
 
 		ginkgo.By("creating service " + serviceName + " with type=NodePort in namespace " + ns)
-		svc, err := jig.CreateTCPService(ctx, func(svc *v1.Service) {
+		svc, err := jig.CreateTCPService(func(svc *v1.Service) {
 			svc.Spec.Type = v1.ServiceTypeNodePort
 		})
 		framework.ExpectNoError(err)
@@ -70,19 +68,21 @@ var _ = sigDescribe("Services", skipUnlessWindows(func() {
 				"kubernetes.io/os": "windows",
 			}
 		}
-		_, err = jig.Run(ctx, windowsNodeSelectorTweak)
+		_, err = jig.Run(windowsNodeSelectorTweak)
 		framework.ExpectNoError(err)
 
 		//using hybrid_network methods
 		ginkgo.By("creating Windows testing Pod")
 		testPod := createTestPod(f, windowsBusyBoximage, windowsOS)
-		testPod = e2epod.NewPodClient(f).CreateSync(ctx, testPod)
+		testPod = e2epod.NewPodClient(f).CreateSync(testPod)
 
 		ginkgo.By("verifying that pod has the correct nodeSelector")
 		// Admission controllers may sometimes do the wrong thing
-		gomega.Expect(testPod.Spec.NodeSelector).To(gomega.HaveKeyWithValue("kubernetes.io/os", "windows"), "pod.spec.nodeSelector")
+		framework.ExpectEqual(testPod.Spec.NodeSelector["kubernetes.io/os"], "windows")
+
 		ginkgo.By(fmt.Sprintf("checking connectivity Pod to curl http://%s:%d", nodeIP, nodePort))
-		assertConsistentConnectivity(ctx, f, testPod.ObjectMeta.Name, windowsOS, windowsCheck(fmt.Sprintf("http://%s", net.JoinHostPort(nodeIP, strconv.Itoa(nodePort)))))
+		assertConsistentConnectivity(f, testPod.ObjectMeta.Name, windowsOS, windowsCheck(fmt.Sprintf("http://%s", net.JoinHostPort(nodeIP, strconv.Itoa(nodePort)))))
 
 	})
-}))
+
+})

@@ -34,7 +34,6 @@ packages=(
   "k8s.io/kubernetes/pkg/..."
   "k8s.io/kubernetes/cmd/..."
   "k8s.io/kubernetes/plugin/..."
-  "k8s.io/kubernetes/test/e2e_node/..."
   "k8s.io/kubernetes/test/e2e/framework/..."
   "k8s.io/kubernetes/test/integration/..."
 )

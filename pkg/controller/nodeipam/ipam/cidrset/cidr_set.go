@@ -79,6 +79,7 @@ func NewCIDRSet(clusterCIDR *net.IPNet, subNetMaskSize int) (*CidrSet, error) {
 	clusterMask := clusterCIDR.Mask
 	clusterMaskSize, bits := clusterMask.Size()
 
+	var maxCIDRs int
 	if (clusterCIDR.IP.To4() == nil) && (subNetMaskSize-clusterMaskSize > clusterSubnetMaxDiff) {
 		return nil, ErrCIDRSetSubNetTooBig
 	}
@@ -86,18 +87,15 @@ func NewCIDRSet(clusterCIDR *net.IPNet, subNetMaskSize int) (*CidrSet, error) {
 	// register CidrSet metrics
 	registerCidrsetMetrics()
 
-	maxCIDRs := getMaxCIDRs(subNetMaskSize, clusterMaskSize)
-	cidrSet := &CidrSet{
+	maxCIDRs = 1 << uint32(subNetMaskSize-clusterMaskSize)
+	return &CidrSet{
 		clusterCIDR:     clusterCIDR,
 		nodeMask:        net.CIDRMask(subNetMaskSize, bits),
 		clusterMaskSize: clusterMaskSize,
 		maxCIDRs:        maxCIDRs,
 		nodeMaskSize:    subNetMaskSize,
 		label:           clusterCIDR.String(),
-	}
-	cidrSetMaxCidrs.WithLabelValues(cidrSet.label).Set(float64(maxCIDRs))
-
-	return cidrSet, nil
+	}, nil
 }
 
 func (s *CidrSet) indexToCIDRBlock(index int) *net.IPNet {
@@ -195,7 +193,10 @@ func (s *CidrSet) getBeginningAndEndIndices(cidr *net.IPNet) (begin, end int, er
 		if cidr.IP.To4() == nil {
 			ipSize = net.IPv6len
 		}
-		begin, err = s.getIndexForIP(cidr.IP.Mask(s.nodeMask))
+		begin, err = s.getIndexForCIDR(&net.IPNet{
+			IP:   cidr.IP.Mask(s.nodeMask),
+			Mask: s.nodeMask,
+		})
 		if err != nil {
 			return -1, -1, err
 		}
@@ -211,7 +212,10 @@ func (s *CidrSet) getBeginningAndEndIndices(cidr *net.IPNet) (begin, end int, er
 			binary.BigEndian.PutUint64(ip[:net.IPv6len/2], ipIntLeft)
 			binary.BigEndian.PutUint64(ip[net.IPv6len/2:], ipIntRight)
 		}
-		end, err = s.getIndexForIP(net.IP(ip).Mask(s.nodeMask))
+		end, err = s.getIndexForCIDR(&net.IPNet{
+			IP:   net.IP(ip).Mask(s.nodeMask),
+			Mask: s.nodeMask,
+		})
 		if err != nil {
 			return -1, -1, err
 		}
@@ -264,6 +268,10 @@ func (s *CidrSet) Occupy(cidr *net.IPNet) (err error) {
 	return nil
 }
 
+func (s *CidrSet) getIndexForCIDR(cidr *net.IPNet) (int, error) {
+	return s.getIndexForIP(cidr.IP)
+}
+
 func (s *CidrSet) getIndexForIP(ip net.IP) (int, error) {
 	if ip.To4() != nil {
 		cidrIndex := (binary.BigEndian.Uint32(s.clusterCIDR.IP) ^ binary.BigEndian.Uint32(ip.To4())) >> uint32(32-s.nodeMaskSize)
@@ -284,10 +292,4 @@ func (s *CidrSet) getIndexForIP(ip net.IP) (int, error) {
 	}
 
 	return 0, fmt.Errorf("invalid IP: %v", ip)
-}
-
-// getMaxCIDRs returns the max number of CIDRs that can be obtained by subdividing a mask of size `clusterMaskSize`
-// into subnets with mask of size `subNetMaskSize`.
-func getMaxCIDRs(subNetMaskSize, clusterMaskSize int) int {
-	return 1 << uint32(subNetMaskSize-clusterMaskSize)
 }

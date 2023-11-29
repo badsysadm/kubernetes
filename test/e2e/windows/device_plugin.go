@@ -39,9 +39,9 @@ const (
 	testSlowMultiplier = 60
 )
 
-var _ = sigDescribe("[Feature:GPUDevicePlugin] Device Plugin", skipUnlessWindows(func() {
+var _ = SIGDescribe("[Feature:GPUDevicePlugin] Device Plugin", func() {
 	f := framework.NewDefaultFramework("device-plugin")
-	f.NamespacePodSecurityLevel = admissionapi.LevelPrivileged
+	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 
 	var cs clientset.Interface
 
@@ -50,7 +50,7 @@ var _ = sigDescribe("[Feature:GPUDevicePlugin] Device Plugin", skipUnlessWindows
 		e2eskipper.SkipUnlessNodeOSDistroIs("windows")
 		cs = f.ClientSet
 	})
-	ginkgo.It("should be able to create a functioning device plugin for Windows", func(ctx context.Context) {
+	ginkgo.It("should be able to create a functioning device plugin for Windows", func() {
 		ginkgo.By("creating Windows device plugin daemonset")
 		dsName := "directx-device-plugin"
 		daemonsetNameLabel := "daemonset-name"
@@ -95,7 +95,7 @@ var _ = sigDescribe("[Feature:GPUDevicePlugin] Device Plugin", skipUnlessWindows
 		}
 
 		sysNs := "kube-system"
-		_, err := cs.AppsV1().DaemonSets(sysNs).Create(ctx, ds, metav1.CreateOptions{})
+		_, err := cs.AppsV1().DaemonSets(sysNs).Create(context.TODO(), ds, metav1.CreateOptions{})
 		framework.ExpectNoError(err)
 
 		ginkgo.By("creating Windows testing Pod")
@@ -104,10 +104,10 @@ var _ = sigDescribe("[Feature:GPUDevicePlugin] Device Plugin", skipUnlessWindows
 		windowsPod.Spec.Containers[0].Resources.Limits = v1.ResourceList{
 			"microsoft.com/directx": resource.MustParse("1"),
 		}
-		windowsPod, err = cs.CoreV1().Pods(f.Namespace.Name).Create(ctx, windowsPod, metav1.CreateOptions{})
+		windowsPod, err = cs.CoreV1().Pods(f.Namespace.Name).Create(context.TODO(), windowsPod, metav1.CreateOptions{})
 		framework.ExpectNoError(err)
 		ginkgo.By("Waiting for the pod Running")
-		err = e2epod.WaitTimeoutForPodRunningInNamespace(ctx, cs, windowsPod.Name, f.Namespace.Name, testSlowMultiplier*framework.PodStartTimeout)
+		err = e2epod.WaitTimeoutForPodRunningInNamespace(cs, windowsPod.Name, f.Namespace.Name, testSlowMultiplier*framework.PodStartTimeout)
 		framework.ExpectNoError(err)
 
 		ginkgo.By("verifying device access in Windows testing Pod")
@@ -132,4 +132,4 @@ var _ = sigDescribe("[Feature:GPUDevicePlugin] Device Plugin", skipUnlessWindows
 		_, envVarDirectxGpuNameErr := e2eoutput.LookForStringInPodExec(defaultNs, windowsPod.Name, envVarCommand, envVarDirectxGpuName, time.Minute)
 		framework.ExpectNoError(envVarDirectxGpuNameErr, "failed: didn't find expected environment variable.")
 	})
-}))
+})

@@ -135,19 +135,15 @@ func NewMultiCIDRSet(cidrConfig *net.IPNet, perNodeHostBits int) (*MultiCIDRSet,
 	// Register MultiCIDRSet metrics.
 	registerCidrsetMetrics()
 
-	maxCIDRs := getMaxCIDRs(subNetMaskSize, clusterMaskSize)
-	multiCIDRSet := &MultiCIDRSet{
+	return &MultiCIDRSet{
 		ClusterCIDR:      cidrConfig,
 		nodeMask:         net.CIDRMask(subNetMaskSize, bits),
 		clusterMaskSize:  clusterMaskSize,
-		MaxCIDRs:         maxCIDRs,
+		MaxCIDRs:         1 << uint32(subNetMaskSize-clusterMaskSize),
 		NodeMaskSize:     subNetMaskSize,
 		Label:            cidrConfig.String(),
 		AllocatedCIDRMap: make(map[string]bool, 0),
-	}
-	cidrSetMaxCidrs.WithLabelValues(multiCIDRSet.Label).Set(float64(maxCIDRs))
-
-	return multiCIDRSet, nil
+	}, nil
 }
 
 func (s *MultiCIDRSet) indexToCIDRBlock(index int) (*net.IPNet, error) {
@@ -247,7 +243,10 @@ func (s *MultiCIDRSet) getBeginningAndEndIndices(cidr *net.IPNet) (int, int, err
 		if netutils.IsIPv6(cidr.IP) {
 			ipSize = net.IPv6len
 		}
-		begin, err = s.getIndexForIP(cidr.IP.Mask(s.nodeMask))
+		begin, err = s.getIndexForCIDR(&net.IPNet{
+			IP:   cidr.IP.Mask(s.nodeMask),
+			Mask: s.nodeMask,
+		})
 		if err != nil {
 			return -1, -1, err
 		}
@@ -263,7 +262,10 @@ func (s *MultiCIDRSet) getBeginningAndEndIndices(cidr *net.IPNet) (int, int, err
 			binary.BigEndian.PutUint64(ip[:net.IPv6len/2], ipIntLeft)
 			binary.BigEndian.PutUint64(ip[net.IPv6len/2:], ipIntRight)
 		}
-		end, err = s.getIndexForIP(net.IP(ip).Mask(s.nodeMask))
+		end, err = s.getIndexForCIDR(&net.IPNet{
+			IP:   net.IP(ip).Mask(s.nodeMask),
+			Mask: s.nodeMask,
+		})
 		if err != nil {
 			return -1, -1, err
 		}
@@ -327,6 +329,10 @@ func (s *MultiCIDRSet) Occupy(cidr *net.IPNet) (err error) {
 	return nil
 }
 
+func (s *MultiCIDRSet) getIndexForCIDR(cidr *net.IPNet) (int, error) {
+	return s.getIndexForIP(cidr.IP)
+}
+
 func (s *MultiCIDRSet) getIndexForIP(ip net.IP) (int, error) {
 	if ip.To4() != nil {
 		cidrIndex := (binary.BigEndian.Uint32(s.ClusterCIDR.IP) ^ binary.BigEndian.Uint32(ip.To4())) >> uint32(32-s.NodeMaskSize)
@@ -352,10 +358,4 @@ func (s *MultiCIDRSet) getIndexForIP(ip net.IP) (int, error) {
 // UpdateEvaluatedCount increments the evaluated count.
 func (s *MultiCIDRSet) UpdateEvaluatedCount(evaluated int) {
 	cidrSetAllocationTriesPerRequest.WithLabelValues(s.Label).Observe(float64(evaluated))
-}
-
-// getMaxCIDRs returns the max number of CIDRs that can be obtained by subdividing a mask of size `clusterMaskSize`
-// into subnets with mask of size `subNetMaskSize`.
-func getMaxCIDRs(subNetMaskSize, clusterMaskSize int) int {
-	return 1 << uint32(subNetMaskSize-clusterMaskSize)
 }

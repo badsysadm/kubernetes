@@ -22,7 +22,6 @@ limitations under the License.
 package windows
 
 import (
-	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -39,13 +38,13 @@ import (
 	"github.com/onsi/gomega"
 )
 
-var _ = sigDescribe("[Feature:Windows] GMSA Kubelet [Slow]", skipUnlessWindows(func() {
+var _ = SIGDescribe("[Feature:Windows] GMSA Kubelet [Slow]", func() {
 	f := framework.NewDefaultFramework("gmsa-kubelet-test-windows")
-	f.NamespacePodSecurityLevel = admissionapi.LevelPrivileged
+	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 
 	ginkgo.Describe("kubelet GMSA support", func() {
 		ginkgo.Context("when creating a pod with correct GMSA credential specs", func() {
-			ginkgo.It("passes the credential specs down to the Pod's containers", func(ctx context.Context) {
+			ginkgo.It("passes the credential specs down to the Pod's containers", func() {
 				defer ginkgo.GinkgoRecover()
 
 				podName := "with-correct-gmsa-specs"
@@ -95,7 +94,7 @@ var _ = sigDescribe("[Feature:Windows] GMSA Kubelet [Slow]", skipUnlessWindows(f
 				}
 
 				ginkgo.By("creating a pod with correct GMSA specs")
-				e2epod.NewPodClient(f).CreateSync(ctx, pod)
+				e2epod.NewPodClient(f).CreateSync(pod)
 
 				ginkgo.By("checking the domain reported by nltest in the containers")
 				namespaceOption := fmt.Sprintf("--namespace=%s", f.Namespace.Name)
@@ -112,7 +111,7 @@ var _ = sigDescribe("[Feature:Windows] GMSA Kubelet [Slow]", skipUnlessWindows(f
 					// even for bogus creds, `nltest /PARENTDOMAIN` simply returns the AD domain, which is enough for our purpose here.
 					// note that the "eventually" part seems to be needed to account for the fact that powershell containers
 					// are a bit slow to become responsive, even when docker reports them as running.
-					gomega.Eventually(ctx, func() bool {
+					gomega.Eventually(func() bool {
 						output, err = e2ekubectl.RunKubectl(f.Namespace.Name, "exec", namespaceOption, podName, containerOption, "--", "nltest", "/PARENTDOMAIN")
 						return err == nil
 					}, 1*time.Minute, 1*time.Second).Should(gomega.BeTrue())
@@ -133,7 +132,7 @@ var _ = sigDescribe("[Feature:Windows] GMSA Kubelet [Slow]", skipUnlessWindows(f
 			})
 		})
 	})
-}))
+})
 
 func generateDummyCredSpecs(domain string) *string {
 	shortName := strings.ToUpper(strings.Split(domain, ".")[0])

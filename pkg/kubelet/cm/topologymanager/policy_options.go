@@ -30,11 +30,11 @@ const (
 )
 
 var (
-	alphaOptions = sets.New[string]()
-	betaOptions  = sets.New[string](
+	alphaOptions = sets.NewString(
 		PreferClosestNUMANodes,
 	)
-	stableOptions = sets.New[string]()
+	betaOptions   = sets.NewString()
+	stableOptions = sets.NewString()
 )
 
 func CheckPolicyOptionAvailable(option string) error {

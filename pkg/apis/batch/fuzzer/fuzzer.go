@@ -17,8 +17,6 @@ limitations under the License.
 package fuzzer
 
 import (
-	"math"
-
 	fuzz "github.com/google/gofuzz"
 	runtimeserializer "k8s.io/apimachinery/pkg/runtime/serializer"
 	"k8s.io/kubernetes/pkg/apis/batch"
@@ -45,25 +43,19 @@ var Funcs = func(codecs runtimeserializer.CodecFactory) []interface{} {
 			j.Completions = &completions
 			j.Parallelism = &parallelism
 			j.BackoffLimit = &backoffLimit
-			j.ManualSelector = pointer.Bool(c.RandBool())
+			if c.Rand.Int31()%2 == 0 {
+				j.ManualSelector = pointer.BoolPtr(true)
+			} else {
+				j.ManualSelector = nil
+			}
 			mode := batch.NonIndexedCompletion
 			if c.RandBool() {
 				mode = batch.IndexedCompletion
-				j.BackoffLimitPerIndex = pointer.Int32(c.Rand.Int31())
-				j.MaxFailedIndexes = pointer.Int32(c.Rand.Int31())
-			}
-			if c.RandBool() {
-				j.BackoffLimit = pointer.Int32(math.MaxInt32)
 			}
 			j.CompletionMode = &mode
 			// We're fuzzing the internal JobSpec type, not the v1 type, so we don't
 			// need to fuzz the nil value.
-			j.Suspend = pointer.Bool(c.RandBool())
-			podReplacementPolicy := batch.TerminatingOrFailed
-			if c.RandBool() {
-				podReplacementPolicy = batch.Failed
-			}
-			j.PodReplacementPolicy = &podReplacementPolicy
+			j.Suspend = pointer.BoolPtr(c.RandBool())
 		},
 		func(sj *batch.CronJobSpec, c fuzz.Continue) {
 			c.FuzzNoCustom(sj)

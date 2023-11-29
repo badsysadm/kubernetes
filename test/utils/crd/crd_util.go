@@ -17,7 +17,6 @@ limitations under the License.
 package crd
 
 import (
-	"context"
 	"fmt"
 
 	"k8s.io/utils/pointer"
@@ -32,7 +31,7 @@ import (
 )
 
 // CleanCrdFn declares the clean up function needed to remove the CRD
-type CleanCrdFn func(ctx context.Context) error
+type CleanCrdFn func() error
 
 // TestCrd holds all the pieces needed to test with the CRD
 type TestCrd struct {
@@ -112,7 +111,7 @@ func CreateMultiVersionTestCRD(f *framework.Framework, group string, opts ...Opt
 	testcrd.APIExtensionClient = apiExtensionClient
 	testcrd.Crd = crd
 	testcrd.DynamicClients = resourceClients
-	testcrd.CleanUp = func(ctx context.Context) error {
+	testcrd.CleanUp = func() error {
 		err := fixtures.DeleteV1CustomResourceDefinition(crd, apiExtensionClient)
 		if err != nil {
 			framework.Failf("failed to delete CustomResourceDefinition(%s): %v", name, err)

@@ -21,6 +21,7 @@ package gce
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -54,7 +55,7 @@ func TestInstanceExists(t *testing.T) {
 			name:        "node not exist",
 			nodeName:    "test-node-2",
 			exist:       false,
-			expectedErr: nil,
+			expectedErr: fmt.Errorf("failed to get instance ID from cloud provider: instance not found"),
 		},
 	}
 

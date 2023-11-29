@@ -26,34 +26,14 @@ import (
 )
 
 const (
-	// SchedulerSubsystem - subsystem name used by scheduler.
+	// SchedulerSubsystem - subsystem name used by scheduler
 	SchedulerSubsystem = "scheduler"
-)
+	// Below are possible values for the work label.
 
-// Below are possible values for the work and operation label.
-const (
-	// PrioritizingExtender - prioritizing extender work/operation label value.
+	// PrioritizingExtender - prioritizing extender work label value
 	PrioritizingExtender = "prioritizing_extender"
-	// Binding - binding work/operation label value.
+	// Binding - binding work label value
 	Binding = "binding"
-)
-
-// Below are possible values for the extension_point label.
-const (
-	PreFilter                   = "PreFilter"
-	Filter                      = "Filter"
-	PreFilterExtensionAddPod    = "PreFilterExtensionAddPod"
-	PreFilterExtensionRemovePod = "PreFilterExtensionRemovePod"
-	PostFilter                  = "PostFilter"
-	PreScore                    = "PreScore"
-	Score                       = "Score"
-	ScoreExtensionNormalize     = "ScoreExtensionNormalize"
-	PreBind                     = "PreBind"
-	Bind                        = "Bind"
-	PostBind                    = "PostBind"
-	Reserve                     = "Reserve"
-	Unreserve                   = "Unreserve"
-	Permit                      = "Permit"
 )
 
 // All the histogram based metrics have 1ms as size for the smallest bucket.
@@ -66,6 +46,15 @@ var (
 			StabilityLevel: metrics.STABLE,
 		}, []string{"result", "profile"})
 
+	e2eSchedulingLatency = metrics.NewHistogramVec(
+		&metrics.HistogramOpts{
+			Subsystem:         SchedulerSubsystem,
+			Name:              "e2e_scheduling_duration_seconds",
+			DeprecatedVersion: "1.23.0",
+			Help:              "E2e scheduling latency in seconds (scheduling algorithm + binding). This metric is replaced by scheduling_attempt_duration_seconds.",
+			Buckets:           metrics.ExponentialBuckets(0.001, 2, 15),
+			StabilityLevel:    metrics.ALPHA,
+		}, []string{"result", "profile"})
 	schedulingLatency = metrics.NewHistogramVec(
 		&metrics.HistogramOpts{
 			Subsystem:      SchedulerSubsystem,
@@ -106,6 +95,16 @@ var (
 			Help:           "Number of pending pods, by the queue type. 'active' means number of pods in activeQ; 'backoff' means number of pods in backoffQ; 'unschedulable' means number of pods in unschedulablePods that the scheduler attempted to schedule and failed; 'gated' is the number of unschedulable pods that the scheduler never attempted to schedule because they are gated.",
 			StabilityLevel: metrics.STABLE,
 		}, []string{"queue"})
+	// SchedulerGoroutines isn't called in some parts where goroutines start.
+	// Goroutines metric replaces SchedulerGoroutines metric. Goroutine metric tracks all goroutines.
+	SchedulerGoroutines = metrics.NewGaugeVec(
+		&metrics.GaugeOpts{
+			Subsystem:         SchedulerSubsystem,
+			DeprecatedVersion: "1.26.0",
+			Name:              "scheduler_goroutines",
+			Help:              "Number of running goroutines split by the work they do such as binding. This metric is replaced by the \"goroutines\" metric.",
+			StabilityLevel:    metrics.ALPHA,
+		}, []string{"work"})
 	Goroutines = metrics.NewGaugeVec(
 		&metrics.GaugeOpts{
 			Subsystem:      SchedulerSubsystem,
@@ -113,29 +112,14 @@ var (
 			Help:           "Number of running goroutines split by the work they do such as binding.",
 			StabilityLevel: metrics.ALPHA,
 		}, []string{"operation"})
-
-	// PodSchedulingDuration is deprecated as of Kubernetes v1.28, and will be removed
-	// in v1.31. Please use PodSchedulingSLIDuration instead.
 	PodSchedulingDuration = metrics.NewHistogramVec(
 		&metrics.HistogramOpts{
 			Subsystem: SchedulerSubsystem,
 			Name:      "pod_scheduling_duration_seconds",
 			Help:      "E2e latency for a pod being scheduled which may include multiple scheduling attempts.",
 			// Start with 10ms with the last bucket being [~88m, Inf).
-			Buckets:           metrics.ExponentialBuckets(0.01, 2, 20),
-			StabilityLevel:    metrics.STABLE,
-			DeprecatedVersion: "1.28.0",
-		},
-		[]string{"attempts"})
-
-	PodSchedulingSLIDuration = metrics.NewHistogramVec(
-		&metrics.HistogramOpts{
-			Subsystem: SchedulerSubsystem,
-			Name:      "pod_scheduling_sli_duration_seconds",
-			Help:      "E2e latency for a pod being scheduled, from the time the pod enters the scheduling queue an d might involve multiple scheduling attempts.",
-			// Start with 10ms with the last bucket being [~88m, Inf).
 			Buckets:        metrics.ExponentialBuckets(0.01, 2, 20),
-			StabilityLevel: metrics.BETA,
+			StabilityLevel: metrics.STABLE,
 		},
 		[]string{"attempts"})
 
@@ -205,32 +189,24 @@ var (
 			StabilityLevel: metrics.ALPHA,
 		}, []string{"plugin", "profile"})
 
-	PluginEvaluationTotal = metrics.NewCounterVec(
-		&metrics.CounterOpts{
-			Subsystem:      SchedulerSubsystem,
-			Name:           "plugin_evaluation_total",
-			Help:           "Number of attempts to schedule pods by each plugin and the extension point (available only in PreFilter and Filter.).",
-			StabilityLevel: metrics.ALPHA,
-		}, []string{"plugin", "extension_point", "profile"})
-
 	metricsList = []metrics.Registerable{
 		scheduleAttempts,
+		e2eSchedulingLatency,
 		schedulingLatency,
 		SchedulingAlgorithmLatency,
 		PreemptionVictims,
 		PreemptionAttempts,
 		pendingPods,
 		PodSchedulingDuration,
-		PodSchedulingSLIDuration,
 		PodSchedulingAttempts,
 		FrameworkExtensionPointDuration,
 		PluginExecutionDuration,
 		SchedulerQueueIncomingPods,
+		SchedulerGoroutines,
 		Goroutines,
 		PermitWaitDuration,
 		CacheSize,
 		unschedulableReasons,
-		PluginEvaluationTotal,
 	}
 )
 

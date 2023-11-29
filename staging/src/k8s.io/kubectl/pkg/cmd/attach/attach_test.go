@@ -31,7 +31,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
-	"k8s.io/cli-runtime/pkg/genericiooptions"
 	restclient "k8s.io/client-go/rest"
 	"k8s.io/client-go/rest/fake"
 	"k8s.io/client-go/tools/remotecommand"
@@ -43,11 +42,13 @@ import (
 )
 
 type fakeRemoteAttach struct {
-	url *url.URL
-	err error
+	method string
+	url    *url.URL
+	err    error
 }
 
-func (f *fakeRemoteAttach) Attach(url *url.URL, config *restclient.Config, stdin io.Reader, stdout, stderr io.Writer, tty bool, terminalSizeQueue remotecommand.TerminalSizeQueue) error {
+func (f *fakeRemoteAttach) Attach(method string, url *url.URL, config *restclient.Config, stdin io.Reader, stdout, stderr io.Writer, tty bool, terminalSizeQueue remotecommand.TerminalSizeQueue) error {
+	f.method = method
 	f.url = url
 	return f.err
 }
@@ -307,7 +308,7 @@ func TestAttach(t *testing.T) {
 			options := &AttachOptions{
 				StreamOptions: exec.StreamOptions{
 					ContainerName: test.container,
-					IOStreams:     genericiooptions.NewTestIOStreamsDiscard(),
+					IOStreams:     genericclioptions.NewTestIOStreamsDiscard(),
 				},
 				Attach:        remoteAttach,
 				GetPodTimeout: 1000,
@@ -325,7 +326,7 @@ func TestAttach(t *testing.T) {
 						return err
 					}
 
-					return options.Attach.Attach(u, nil, nil, nil, nil, raw, sizeQueue)
+					return options.Attach.Attach("POST", u, nil, nil, nil, nil, raw, sizeQueue)
 				}
 			}
 
@@ -344,6 +345,9 @@ func TestAttach(t *testing.T) {
 			if remoteAttach.url.Path != test.attachPath {
 				t.Errorf("%s: Did not get expected path for exec request: %q %q", test.name, test.attachPath, remoteAttach.url.Path)
 				return
+			}
+			if remoteAttach.method != "POST" {
+				t.Errorf("%s: Did not get method for attach request: %s", test.name, remoteAttach.method)
 			}
 			if remoteAttach.url.Query().Get("container") != "bar" {
 				t.Errorf("%s: Did not have query parameters: %s", test.name, remoteAttach.url.Query())
@@ -375,7 +379,7 @@ func TestAttachWarnings(t *testing.T) {
 			tf := cmdtesting.NewTestFactory().WithNamespace("test")
 			defer tf.Cleanup()
 
-			streams, _, _, bufErr := genericiooptions.NewTestIOStreams()
+			streams, _, _, bufErr := genericclioptions.NewTestIOStreams()
 
 			codec := scheme.Codecs.LegacyCodec(scheme.Scheme.PrioritizedVersionsAllGroups()...)
 			ns := scheme.Codecs.WithoutConversion()
@@ -423,7 +427,7 @@ func TestAttachWarnings(t *testing.T) {
 						return err
 					}
 
-					return options.Attach.Attach(u, nil, nil, nil, nil, raw, sizeQueue)
+					return options.Attach.Attach("POST", u, nil, nil, nil, nil, raw, sizeQueue)
 				}
 			}
 

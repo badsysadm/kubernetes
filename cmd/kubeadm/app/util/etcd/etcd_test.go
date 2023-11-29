@@ -135,7 +135,7 @@ func TestGetClientURL(t *testing.T) {
 }
 
 func TestGetPeerURL(t *testing.T) {
-	testGetURL(t, GetPeerURL, constants.EtcdListenPeerPort)
+	testGetURL(t, GetClientURL, constants.EtcdListenClientPort)
 }
 
 func TestGetClientURLByIP(t *testing.T) {

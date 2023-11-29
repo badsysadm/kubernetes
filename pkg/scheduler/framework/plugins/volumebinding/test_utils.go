@@ -23,7 +23,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/component-helpers/storage/volume"
-	"k8s.io/utils/ptr"
+	"k8s.io/utils/pointer"
 )
 
 type nodeBuilder struct {
@@ -115,7 +115,7 @@ func makePVC(name string, storageClassName string) pvcBuilder {
 			Namespace: v1.NamespaceDefault,
 		},
 		Spec: v1.PersistentVolumeClaimSpec{
-			StorageClassName: ptr.To(storageClassName),
+			StorageClassName: pointer.String(storageClassName),
 		},
 	}}
 }
@@ -127,7 +127,7 @@ func (pvcb pvcBuilder) withBoundPV(pvName string) pvcBuilder {
 }
 
 func (pvcb pvcBuilder) withRequestStorage(request resource.Quantity) pvcBuilder {
-	pvcb.PersistentVolumeClaim.Spec.Resources = v1.VolumeResourceRequirements{
+	pvcb.PersistentVolumeClaim.Spec.Resources = v1.ResourceRequirements{
 		Requests: v1.ResourceList{
 			v1.ResourceName(v1.ResourceStorage): request,
 		},

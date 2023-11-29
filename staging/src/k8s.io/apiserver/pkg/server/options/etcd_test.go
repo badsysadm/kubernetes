@@ -160,40 +160,6 @@ func TestEtcdOptionsValidate(t *testing.T) {
 				EtcdServersOverrides:    []string{"/events#http://127.0.0.1:4002"},
 			},
 		},
-		{
-			name: "empty storage-media-type",
-			testOptions: &EtcdOptions{
-				StorageConfig: storagebackend.Config{
-					Transport: storagebackend.TransportConfig{
-						ServerList: []string{"http://127.0.0.1"},
-					},
-				},
-				DefaultStorageMediaType: "",
-			},
-		},
-		{
-			name: "recognized storage-media-type",
-			testOptions: &EtcdOptions{
-				StorageConfig: storagebackend.Config{
-					Transport: storagebackend.TransportConfig{
-						ServerList: []string{"http://127.0.0.1"},
-					},
-				},
-				DefaultStorageMediaType: "application/json",
-			},
-		},
-		{
-			name: "unrecognized storage-media-type",
-			testOptions: &EtcdOptions{
-				StorageConfig: storagebackend.Config{
-					Transport: storagebackend.TransportConfig{
-						ServerList: []string{"http://127.0.0.1"},
-					},
-				},
-				DefaultStorageMediaType: "foo/bar",
-			},
-			expectErr: `--storage-media-type "foo/bar" invalid, allowed values: application/json, application/vnd.kubernetes.protobuf, application/yaml`,
-		},
 	}
 
 	for _, testcase := range testCases {
@@ -263,90 +229,68 @@ func TestParseWatchCacheSizes(t *testing.T) {
 }
 
 func TestKMSHealthzEndpoint(t *testing.T) {
-	defer featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, features.KMSv1, true)()
+	defer featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, features.KMSv2, true)()
 
 	testCases := []struct {
 		name                 string
 		encryptionConfigPath string
-		wantHealthzChecks    []string
-		wantReadyzChecks     []string
-		wantLivezChecks      []string
+		wantChecks           []string
 		skipHealth           bool
 		reload               bool
 	}{
 		{
-			name:                 "no kms-provider, expect no kms healthz check, no kms livez check",
+			name:                 "no kms-provider, expect no kms healthz check",
 			encryptionConfigPath: "testdata/encryption-configs/no-kms-provider.yaml",
-			wantHealthzChecks:    []string{"etcd"},
-			wantReadyzChecks:     []string{"etcd", "etcd-readiness"},
-			wantLivezChecks:      []string{"etcd"},
+			wantChecks:           []string{"etcd"},
 		},
 		{
-			name:                 "no kms-provider+reload, expect single kms healthz check, no kms livez check",
+			name:                 "no kms-provider+reload, expect single kms healthz check",
 			encryptionConfigPath: "testdata/encryption-configs/no-kms-provider.yaml",
 			reload:               true,
-			wantHealthzChecks:    []string{"etcd", "kms-providers"},
-			wantReadyzChecks:     []string{"etcd", "kms-providers", "etcd-readiness"},
-			wantLivezChecks:      []string{"etcd"},
+			wantChecks:           []string{"etcd", "kms-providers"},
 		},
 		{
-			name:                 "single kms-provider, expect single kms healthz check, no kms livez check",
+			name:                 "single kms-provider, expect single kms healthz check",
 			encryptionConfigPath: "testdata/encryption-configs/single-kms-provider.yaml",
-			wantHealthzChecks:    []string{"etcd", "kms-provider-0"},
-			wantReadyzChecks:     []string{"etcd", "kms-provider-0", "etcd-readiness"},
-			wantLivezChecks:      []string{"etcd"},
+			wantChecks:           []string{"etcd", "kms-provider-0"},
 		},
 		{
-			name:                 "two kms-providers, expect two kms healthz checks, no kms livez check",
+			name:                 "two kms-providers, expect two kms healthz checks",
 			encryptionConfigPath: "testdata/encryption-configs/multiple-kms-providers.yaml",
-			wantHealthzChecks:    []string{"etcd", "kms-provider-0", "kms-provider-1"},
-			wantReadyzChecks:     []string{"etcd", "kms-provider-0", "kms-provider-1", "etcd-readiness"},
-			wantLivezChecks:      []string{"etcd"},
+			wantChecks:           []string{"etcd", "kms-provider-0", "kms-provider-1"},
 		},
 		{
-			name:                 "two kms-providers+reload, expect single kms healthz check, no kms livez check",
+			name:                 "two kms-providers+reload, expect single kms healthz check",
 			encryptionConfigPath: "testdata/encryption-configs/multiple-kms-providers.yaml",
 			reload:               true,
-			wantHealthzChecks:    []string{"etcd", "kms-providers"},
-			wantReadyzChecks:     []string{"etcd", "kms-providers", "etcd-readiness"},
-			wantLivezChecks:      []string{"etcd"},
+			wantChecks:           []string{"etcd", "kms-providers"},
 		},
 		{
-			name:                 "kms v1+v2, expect three kms healthz checks, no kms livez check",
+			name:                 "kms v1+v2, expect three kms healthz checks",
 			encryptionConfigPath: "testdata/encryption-configs/multiple-kms-providers-with-v2.yaml",
-			wantHealthzChecks:    []string{"etcd", "kms-provider-0", "kms-provider-1", "kms-provider-2"},
-			wantReadyzChecks:     []string{"etcd", "kms-provider-0", "kms-provider-1", "kms-provider-2", "etcd-readiness"},
-			wantLivezChecks:      []string{"etcd"},
+			wantChecks:           []string{"etcd", "kms-provider-0", "kms-provider-1", "kms-provider-2"},
 		},
 		{
-			name:                 "kms v1+v2+reload, expect single kms healthz check, no kms livez check",
+			name:                 "kms v1+v2+reload, expect single kms healthz check",
 			encryptionConfigPath: "testdata/encryption-configs/multiple-kms-providers-with-v2.yaml",
 			reload:               true,
-			wantHealthzChecks:    []string{"etcd", "kms-providers"},
-			wantReadyzChecks:     []string{"etcd", "kms-providers", "etcd-readiness"},
-			wantLivezChecks:      []string{"etcd"},
+			wantChecks:           []string{"etcd", "kms-providers"},
 		},
 		{
-			name:                 "multiple kms v2, expect single kms healthz check, no kms livez check",
+			name:                 "multiple kms v2, expect single kms healthz check",
 			encryptionConfigPath: "testdata/encryption-configs/multiple-kms-v2-providers.yaml",
-			wantHealthzChecks:    []string{"etcd", "kms-providers"},
-			wantReadyzChecks:     []string{"etcd", "kms-providers", "etcd-readiness"},
-			wantLivezChecks:      []string{"etcd"},
+			wantChecks:           []string{"etcd", "kms-providers"},
 		},
 		{
-			name:                 "multiple kms v2+reload, expect single kms healthz check, no kms livez check",
+			name:                 "multiple kms v2+reload, expect single kms healthz check",
 			encryptionConfigPath: "testdata/encryption-configs/multiple-kms-v2-providers.yaml",
 			reload:               true,
-			wantHealthzChecks:    []string{"etcd", "kms-providers"},
-			wantReadyzChecks:     []string{"etcd", "kms-providers", "etcd-readiness"},
-			wantLivezChecks:      []string{"etcd"},
+			wantChecks:           []string{"etcd", "kms-providers"},
 		},
 		{
-			name:                 "two kms-providers with skip, expect zero kms healthz checks, no kms livez check",
+			name:                 "two kms-providers with skip, expect zero kms healthz checks",
 			encryptionConfigPath: "testdata/encryption-configs/multiple-kms-providers.yaml",
-			wantHealthzChecks:    nil,
-			wantReadyzChecks:     nil,
-			wantLivezChecks:      nil,
+			wantChecks:           nil,
 			skipHealth:           true,
 		},
 	}
@@ -362,13 +306,14 @@ func TestKMSHealthzEndpoint(t *testing.T) {
 				EncryptionProviderConfigAutomaticReload: tc.reload,
 				SkipHealthEndpoints:                     tc.skipHealth,
 			}
+			if err := etcdOptions.Complete(serverConfig.StorageObjectCountTracker, serverConfig.DrainedNotify(), serverConfig.AddPostStartHook); err != nil {
+				t.Fatal(err)
+			}
 			if err := etcdOptions.ApplyTo(serverConfig); err != nil {
 				t.Fatalf("Failed to add healthz error: %v", err)
 			}
 
-			healthChecksAreEqual(t, tc.wantHealthzChecks, serverConfig.HealthzChecks, "healthz")
-			healthChecksAreEqual(t, tc.wantReadyzChecks, serverConfig.ReadyzChecks, "readyz")
-			healthChecksAreEqual(t, tc.wantLivezChecks, serverConfig.LivezChecks, "livez")
+			healthChecksAreEqual(t, tc.wantChecks, serverConfig.HealthzChecks)
 		})
 	}
 }
@@ -378,20 +323,17 @@ func TestReadinessCheck(t *testing.T) {
 		name              string
 		wantReadyzChecks  []string
 		wantHealthzChecks []string
-		wantLivezChecks   []string
 		skipHealth        bool
 	}{
 		{
 			name:              "Readyz should have etcd-readiness check",
 			wantReadyzChecks:  []string{"etcd", "etcd-readiness"},
 			wantHealthzChecks: []string{"etcd"},
-			wantLivezChecks:   []string{"etcd"},
 		},
 		{
 			name:              "skip health, Readyz should not have etcd-readiness check",
 			wantReadyzChecks:  nil,
 			wantHealthzChecks: nil,
-			wantLivezChecks:   nil,
 			skipHealth:        true,
 		},
 	}
@@ -403,18 +345,20 @@ func TestReadinessCheck(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			serverConfig := server.NewConfig(codecs)
 			etcdOptions := &EtcdOptions{SkipHealthEndpoints: tc.skipHealth}
+			if err := etcdOptions.Complete(serverConfig.StorageObjectCountTracker, serverConfig.DrainedNotify(), serverConfig.AddPostStartHook); err != nil {
+				t.Fatal(err)
+			}
 			if err := etcdOptions.ApplyTo(serverConfig); err != nil {
 				t.Fatalf("Failed to add healthz error: %v", err)
 			}
 
-			healthChecksAreEqual(t, tc.wantReadyzChecks, serverConfig.ReadyzChecks, "readyz")
-			healthChecksAreEqual(t, tc.wantHealthzChecks, serverConfig.HealthzChecks, "healthz")
-			healthChecksAreEqual(t, tc.wantLivezChecks, serverConfig.LivezChecks, "livez")
+			healthChecksAreEqual(t, tc.wantReadyzChecks, serverConfig.ReadyzChecks)
+			healthChecksAreEqual(t, tc.wantHealthzChecks, serverConfig.HealthzChecks)
 		})
 	}
 }
 
-func healthChecksAreEqual(t *testing.T, want []string, healthChecks []healthz.HealthChecker, checkerType string) {
+func healthChecksAreEqual(t *testing.T, want []string, healthChecks []healthz.HealthChecker) {
 	t.Helper()
 
 	wantSet := sets.NewString(want...)
@@ -427,6 +371,6 @@ func healthChecksAreEqual(t *testing.T, want []string, healthChecks []healthz.He
 	gotSet.Delete("log", "ping") // not relevant for our tests
 
 	if !wantSet.Equal(gotSet) {
-		t.Errorf("%s checks are not equal, missing=%q, extra=%q", checkerType, wantSet.Difference(gotSet).List(), gotSet.Difference(wantSet).List())
+		t.Errorf("healthz checks are not equal, missing=%q, extra=%q", wantSet.Difference(gotSet).List(), gotSet.Difference(wantSet).List())
 	}
 }

@@ -30,7 +30,6 @@ import (
 
 	"github.com/lithammer/dedent"
 
-	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	kubeadmapi "k8s.io/kubernetes/cmd/kubeadm/app/apis/kubeadm"
@@ -52,20 +51,14 @@ func TestGetStaticPodSpecs(t *testing.T) {
 	// Creates a Cluster Configuration
 	cfg := &kubeadmapi.ClusterConfiguration{
 		KubernetesVersion: "v1.9.0",
-		Scheduler: kubeadmapi.ControlPlaneComponent{ExtraEnvs: []kubeadmapi.EnvVar{
-			{
-				EnvVar: v1.EnvVar{Name: "Foo", Value: "Bar"},
-			},
-		}},
 	}
 
 	// Executes GetStaticPodSpecs
-	specs := GetStaticPodSpecs(cfg, &kubeadmapi.APIEndpoint{}, []kubeadmapi.EnvVar{})
+	specs := GetStaticPodSpecs(cfg, &kubeadmapi.APIEndpoint{})
 
 	var tests = []struct {
 		name          string
 		staticPodName string
-		env           []v1.EnvVar
 	}{
 		{
 			name:          "KubeAPIServer",
@@ -78,7 +71,6 @@ func TestGetStaticPodSpecs(t *testing.T) {
 		{
 			name:          "KubeScheduler",
 			staticPodName: kubeadmconstants.KubeScheduler,
-			env:           []v1.EnvVar{{Name: "Foo", Value: "Bar"}},
 		},
 	}
 
@@ -86,15 +78,12 @@ func TestGetStaticPodSpecs(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			// assert the spec for the staticPodName exists
 			if spec, ok := specs[tc.staticPodName]; ok {
+
 				// Assert each specs refers to the right pod
 				if spec.Spec.Containers[0].Name != tc.staticPodName {
 					t.Errorf("getKubeConfigSpecs spec for %s contains pod %s, expects %s", tc.staticPodName, spec.Spec.Containers[0].Name, tc.staticPodName)
 				}
-				if tc.env != nil {
-					if !reflect.DeepEqual(spec.Spec.Containers[0].Env, tc.env) {
-						t.Errorf("expected env: %v, got: %v", tc.env, spec.Spec.Containers[0].Env)
-					}
-				}
+
 			} else {
 				t.Errorf("getStaticPodSpecs didn't create spec for %s ", tc.staticPodName)
 			}
@@ -377,11 +366,11 @@ func TestGetAPIServerCommand(t *testing.T) {
 				CertificatesDir: testCertsDir,
 				APIServer: kubeadmapi.APIServer{
 					ControlPlaneComponent: kubeadmapi.ControlPlaneComponent{
-						ExtraArgs: []kubeadmapi.Arg{
-							{Name: "service-cluster-ip-range", Value: "baz"},
-							{Name: "advertise-address", Value: "9.9.9.9"},
-							{Name: "audit-policy-file", Value: "/etc/config/audit.yaml"},
-							{Name: "audit-log-path", Value: "/var/log/kubernetes"},
+						ExtraArgs: map[string]string{
+							"service-cluster-ip-range": "baz",
+							"advertise-address":        "9.9.9.9",
+							"audit-policy-file":        "/etc/config/audit.yaml",
+							"audit-log-path":           "/var/log/kubernetes",
 						},
 					},
 				},
@@ -427,8 +416,8 @@ func TestGetAPIServerCommand(t *testing.T) {
 				CertificatesDir: testCertsDir,
 				APIServer: kubeadmapi.APIServer{
 					ControlPlaneComponent: kubeadmapi.ControlPlaneComponent{
-						ExtraArgs: []kubeadmapi.Arg{
-							{Name: "authorization-mode", Value: kubeadmconstants.ModeABAC},
+						ExtraArgs: map[string]string{
+							"authorization-mode": kubeadmconstants.ModeABAC,
 						},
 					},
 				},
@@ -472,12 +461,12 @@ func TestGetAPIServerCommand(t *testing.T) {
 				CertificatesDir: testCertsDir,
 				APIServer: kubeadmapi.APIServer{
 					ControlPlaneComponent: kubeadmapi.ControlPlaneComponent{
-						ExtraArgs: []kubeadmapi.Arg{
-							{Name: "authorization-mode", Value: strings.Join([]string{
+						ExtraArgs: map[string]string{
+							"authorization-mode": strings.Join([]string{
 								kubeadmconstants.ModeNode,
 								kubeadmconstants.ModeRBAC,
 								kubeadmconstants.ModeWebhook,
-							}, ",")},
+							}, ","),
 						},
 					},
 				},
@@ -541,9 +530,9 @@ func errorDiffArguments(t *testing.T, name string, actual, expected []string) {
 // removeCommon removes common items from left list
 // makes compairing two cmdline (with lots of arguments) easier
 func removeCommon(left, right []string) []string {
-	origSet := sets.New(left...)
+	origSet := sets.NewString(left...)
 	origSet.Delete(right...)
-	return sets.List(origSet)
+	return origSet.List()
 }
 
 func TestGetControllerManagerCommand(t *testing.T) {
@@ -662,7 +651,7 @@ func TestGetControllerManagerCommand(t *testing.T) {
 			cfg: &kubeadmapi.ClusterConfiguration{
 				Networking: kubeadmapi.Networking{PodSubnet: "10.0.1.15/16", DNSDomain: "cluster.local"},
 				ControllerManager: kubeadmapi.ControlPlaneComponent{
-					ExtraArgs: []kubeadmapi.Arg{{Name: "node-cidr-mask-size", Value: "20"}},
+					ExtraArgs: map[string]string{"node-cidr-mask-size": "20"},
 				},
 				CertificatesDir:   testCertsDir,
 				KubernetesVersion: cpVersion,
@@ -728,7 +717,7 @@ func TestGetControllerManagerCommand(t *testing.T) {
 					DNSDomain:     "cluster.local",
 				},
 				ControllerManager: kubeadmapi.ControlPlaneComponent{
-					ExtraArgs: []kubeadmapi.Arg{{Name: "allocate-node-cidrs", Value: "false"}},
+					ExtraArgs: map[string]string{"allocate-node-cidrs": "false"},
 				},
 				CertificatesDir:   testCertsDir,
 				KubernetesVersion: cpVersion,
@@ -792,10 +781,7 @@ func TestGetControllerManagerCommand(t *testing.T) {
 					DNSDomain: "cluster.local",
 				},
 				ControllerManager: kubeadmapi.ControlPlaneComponent{
-					ExtraArgs: []kubeadmapi.Arg{
-						{Name: "node-cidr-mask-size-ipv4", Value: "20"},
-						{Name: "node-cidr-mask-size-ipv6", Value: "80"},
-					},
+					ExtraArgs: map[string]string{"node-cidr-mask-size-ipv4": "20", "node-cidr-mask-size-ipv6": "80"},
 				},
 				CertificatesDir:   testCertsDir,
 				KubernetesVersion: cpVersion,

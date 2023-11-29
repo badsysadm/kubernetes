@@ -17,21 +17,20 @@ limitations under the License.
 package chaosmonkey
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/onsi/ginkgo/v2"
 )
 
 // Disruption is the type to construct a Chaosmonkey with; see Do for more information.
-type Disruption func(ctx context.Context)
+type Disruption func()
 
 // Test is the type to register with a Chaosmonkey.  A test will run asynchronously across the
 // Chaosmonkey's Disruption.  A Test takes a Semaphore as an argument.  It should call sem.Ready()
 // once it's ready for the disruption to start and should then wait until sem.StopCh (which is a
 // <-chan struct{}) is closed, which signals that the disruption is over.  It should then clean up
 // and return.  See Do and Semaphore for more information.
-type Test func(ctx context.Context, sem *Semaphore)
+type Test func(sem *Semaphore)
 
 // Interface can be implemented if you prefer to define tests without dealing with a Semaphore.  You
 // may define a struct that implements Interface's three methods (Setup, Test, and Teardown) and
@@ -67,7 +66,7 @@ func (cm *Chaosmonkey) Register(test Test) {
 // call Setup, Test, and Teardown properly.  Test can tell that the Disruption is finished when
 // stopCh is closed.
 func (cm *Chaosmonkey) RegisterInterface(in Interface) {
-	cm.Register(func(ctx context.Context, sem *Semaphore) {
+	cm.Register(func(sem *Semaphore) {
 		in.Setup()
 		sem.Ready()
 		in.Test(sem.StopCh)
@@ -80,7 +79,7 @@ func (cm *Chaosmonkey) RegisterInterface(in Interface) {
 // waits for each test to signal that it is ready by calling sem.Ready().  Do will then do the
 // Disruption, and when it's complete, close sem.StopCh to signal to the registered Tests that the
 // Disruption is over, and wait for all Tests to return.
-func (cm *Chaosmonkey) Do(ctx context.Context) {
+func (cm *Chaosmonkey) Do() {
 	sems := []*Semaphore{}
 	// All semaphores have the same StopCh.
 	stopCh := make(chan struct{})
@@ -92,7 +91,7 @@ func (cm *Chaosmonkey) Do(ctx context.Context) {
 		go func() {
 			defer ginkgo.GinkgoRecover()
 			defer sem.done()
-			test(ctx, sem)
+			test(sem)
 		}()
 	}
 
@@ -113,7 +112,7 @@ func (cm *Chaosmonkey) Do(ctx context.Context) {
 	}()
 
 	fmt.Println("Starting disruption")
-	cm.disruption(ctx)
+	cm.disruption()
 	fmt.Println("Disruption complete; stopping async validations")
 }
 

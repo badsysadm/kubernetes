@@ -19,6 +19,7 @@ package plugin
 import (
 	"bytes"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -26,8 +27,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"k8s.io/cli-runtime/pkg/genericiooptions"
-
+	"k8s.io/cli-runtime/pkg/genericclioptions"
 	cmdutil "k8s.io/kubectl/pkg/cmd/util"
 	"k8s.io/kubectl/pkg/util/i18n"
 	"k8s.io/kubectl/pkg/util/templates"
@@ -59,7 +59,7 @@ var (
 	ValidPluginFilenamePrefixes = []string{"kubectl"}
 )
 
-func NewCmdPlugin(streams genericiooptions.IOStreams) *cobra.Command {
+func NewCmdPlugin(streams genericclioptions.IOStreams) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:                   "plugin [flags]",
 		DisableFlagsInUseLine: true,
@@ -80,11 +80,11 @@ type PluginListOptions struct {
 
 	PluginPaths []string
 
-	genericiooptions.IOStreams
+	genericclioptions.IOStreams
 }
 
 // NewCmdPluginList provides a way to list all plugin executables visible to kubectl
-func NewCmdPluginList(streams genericiooptions.IOStreams) *cobra.Command {
+func NewCmdPluginList(streams genericclioptions.IOStreams) *cobra.Command {
 	o := &PluginListOptions{
 		IOStreams: streams,
 	}
@@ -166,7 +166,7 @@ func (o *PluginListOptions) ListPlugins() ([]string, []error) {
 			continue
 		}
 
-		files, err := os.ReadDir(dir)
+		files, err := ioutil.ReadDir(dir)
 		if err != nil {
 			if _, ok := err.(*os.PathError); ok {
 				fmt.Fprintf(o.ErrOut, "Unable to read directory %q from your PATH: %v. Skipping...\n", dir, err)

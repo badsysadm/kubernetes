@@ -111,9 +111,7 @@ func runDiff(flags *diffFlags, args []string) error {
 	var err error
 	var cfg *kubeadmapi.InitConfiguration
 	if flags.cfgPath != "" {
-		cfg, err = configutil.LoadInitConfigurationFromFile(flags.cfgPath, configutil.LoadOrDefaultConfigurationOptions{
-			SkipCRIDetect: true,
-		})
+		cfg, err = configutil.LoadInitConfigurationFromFile(flags.cfgPath)
 	} else {
 		var client *client.Clientset
 		client, err = kubeconfigutil.ClientSetFromFile(flags.kubeConfigPath)
@@ -150,7 +148,7 @@ func runDiff(flags *diffFlags, args []string) error {
 
 	cfg.ClusterConfiguration.KubernetesVersion = flags.newK8sVersionStr
 
-	specs := controlplane.GetStaticPodSpecs(&cfg.ClusterConfiguration, &cfg.LocalAPIEndpoint, nil)
+	specs := controlplane.GetStaticPodSpecs(&cfg.ClusterConfiguration, &cfg.LocalAPIEndpoint)
 	for spec, pod := range specs {
 		var path string
 		switch spec {

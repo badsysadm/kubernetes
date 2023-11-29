@@ -318,8 +318,6 @@ func ReadLogs(ctx context.Context, path, containerID string, opts *LogOptions, r
 	found := true
 	writer := newLogWriter(stdout, stderr, opts)
 	msg := &logMessage{}
-	baseName := filepath.Base(path)
-	dir := filepath.Dir(path)
 	for {
 		if stop || (limitedMode && limitedNum == 0) {
 			klog.V(2).InfoS("Finished parsing log file", "path", path)
@@ -346,8 +344,8 @@ func ReadLogs(ctx context.Context, path, containerID string, opts *LogOptions, r
 						return fmt.Errorf("failed to create fsnotify watcher: %v", err)
 					}
 					defer watcher.Close()
-					if err := watcher.Add(dir); err != nil {
-						return fmt.Errorf("failed to watch directory %q: %w", dir, err)
+					if err := watcher.Add(f.Name()); err != nil {
+						return fmt.Errorf("failed to watch file %q: %v", f.Name(), err)
 					}
 					// If we just created the watcher, try again to read as we might have missed
 					// the event.
@@ -355,7 +353,7 @@ func ReadLogs(ctx context.Context, path, containerID string, opts *LogOptions, r
 				}
 				var recreated bool
 				// Wait until the next log change.
-				found, recreated, err = waitLogs(ctx, containerID, baseName, watcher, runtimeService)
+				found, recreated, err = waitLogs(ctx, containerID, watcher, runtimeService)
 				if err != nil {
 					return err
 				}
@@ -369,7 +367,13 @@ func ReadLogs(ctx context.Context, path, containerID string, opts *LogOptions, r
 					}
 					defer newF.Close()
 					f.Close()
+					if err := watcher.Remove(f.Name()); err != nil && !os.IsNotExist(err) {
+						klog.ErrorS(err, "Failed to remove file watch", "path", f.Name())
+					}
 					f = newF
+					if err := watcher.Add(f.Name()); err != nil {
+						return fmt.Errorf("failed to watch file %q: %v", f.Name(), err)
+					}
 					r = bufio.NewReader(f)
 				}
 				// If the container exited consume data until the next EOF
@@ -437,7 +441,7 @@ func isContainerRunning(ctx context.Context, id string, r internalapi.RuntimeSer
 // waitLogs wait for the next log write. It returns two booleans and an error. The first boolean
 // indicates whether a new log is found; the second boolean if the log file was recreated;
 // the error is error happens during waiting new logs.
-func waitLogs(ctx context.Context, id string, logName string, w *fsnotify.Watcher, runtimeService internalapi.RuntimeService) (bool, bool, error) {
+func waitLogs(ctx context.Context, id string, w *fsnotify.Watcher, runtimeService internalapi.RuntimeService) (bool, bool, error) {
 	// no need to wait if the pod is not running
 	if running, err := isContainerRunning(ctx, id, runtimeService); !running {
 		return false, false, err
@@ -449,10 +453,16 @@ func waitLogs(ctx context.Context, id string, logName string, w *fsnotify.Watche
 			return false, false, fmt.Errorf("context cancelled")
 		case e := <-w.Events:
 			switch e.Op {
-			case fsnotify.Write, fsnotify.Rename, fsnotify.Remove, fsnotify.Chmod:
+			case fsnotify.Write:
 				return true, false, nil
 			case fsnotify.Create:
-				return true, filepath.Base(e.Name) == logName, nil
+				fallthrough
+			case fsnotify.Rename:
+				fallthrough
+			case fsnotify.Remove:
+				fallthrough
+			case fsnotify.Chmod:
+				return true, true, nil
 			default:
 				klog.ErrorS(nil, "Received unexpected fsnotify event, retrying", "event", e)
 			}

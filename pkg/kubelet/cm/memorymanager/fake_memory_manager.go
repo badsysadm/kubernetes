@@ -50,7 +50,7 @@ func (m *fakeManager) AddContainer(pod *v1.Pod, container *v1.Container, contain
 	klog.InfoS("Add container", "pod", klog.KObj(pod), "containerName", container.Name, "containerID", containerID)
 }
 
-func (m *fakeManager) GetMemoryNUMANodes(pod *v1.Pod, container *v1.Container) sets.Set[int] {
+func (m *fakeManager) GetMemoryNUMANodes(pod *v1.Pod, container *v1.Container) sets.Int {
 	klog.InfoS("Get MemoryNUMANodes", "pod", klog.KObj(pod), "containerName", container.Name)
 	return nil
 }

@@ -17,7 +17,6 @@ limitations under the License.
 package gcp
 
 import (
-	"context"
 	"fmt"
 	"os/exec"
 
@@ -32,19 +31,19 @@ import (
 var _ = SIGDescribe("GKE node pools [Feature:GKENodePool]", func() {
 
 	f := framework.NewDefaultFramework("node-pools")
-	f.NamespacePodSecurityLevel = admissionapi.LevelPrivileged
+	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 
 	ginkgo.BeforeEach(func() {
 		e2eskipper.SkipUnlessProviderIs("gke")
 	})
 
-	ginkgo.It("should create a cluster with multiple node pools [Feature:GKENodePool]", func(ctx context.Context) {
+	ginkgo.It("should create a cluster with multiple node pools [Feature:GKENodePool]", func() {
 		framework.Logf("Start create node pool test")
-		testCreateDeleteNodePool(ctx, f, "test-pool")
+		testCreateDeleteNodePool(f, "test-pool")
 	})
 })
 
-func testCreateDeleteNodePool(ctx context.Context, f *framework.Framework, poolName string) {
+func testCreateDeleteNodePool(f *framework.Framework, poolName string) {
 	framework.Logf("Create node pool: %q in cluster: %q", poolName, framework.TestContext.CloudConfig.Cluster)
 
 	clusterStr := fmt.Sprintf("--cluster=%s", framework.TestContext.CloudConfig.Cluster)
@@ -67,7 +66,7 @@ func testCreateDeleteNodePool(ctx context.Context, f *framework.Framework, poolN
 	framework.Logf("Node pools:\n%s", string(out))
 
 	framework.Logf("Checking that 2 nodes have the correct node pool label.")
-	nodeCount := nodesWithPoolLabel(ctx, f, poolName)
+	nodeCount := nodesWithPoolLabel(f, poolName)
 	if nodeCount != 2 {
 		framework.Failf("Wanted 2 nodes with node pool label, got: %v", nodeCount)
 	}
@@ -92,7 +91,7 @@ func testCreateDeleteNodePool(ctx context.Context, f *framework.Framework, poolN
 	framework.Logf("\nNode pools:\n%s", string(out))
 
 	framework.Logf("Checking that no nodes have the deleted node pool's label.")
-	nodeCount = nodesWithPoolLabel(ctx, f, poolName)
+	nodeCount = nodesWithPoolLabel(f, poolName)
 	if nodeCount != 0 {
 		framework.Failf("Wanted 0 nodes with node pool label, got: %v", nodeCount)
 	}
@@ -101,9 +100,9 @@ func testCreateDeleteNodePool(ctx context.Context, f *framework.Framework, poolN
 
 // nodesWithPoolLabel returns the number of nodes that have the "gke-nodepool"
 // label with the given node pool name.
-func nodesWithPoolLabel(ctx context.Context, f *framework.Framework, poolName string) int {
+func nodesWithPoolLabel(f *framework.Framework, poolName string) int {
 	nodeCount := 0
-	nodeList, err := e2enode.GetReadySchedulableNodes(ctx, f.ClientSet)
+	nodeList, err := e2enode.GetReadySchedulableNodes(f.ClientSet)
 	framework.ExpectNoError(err)
 	for _, node := range nodeList.Items {
 		if poolLabel := node.Labels["cloud.google.com/gke-nodepool"]; poolLabel == poolName {

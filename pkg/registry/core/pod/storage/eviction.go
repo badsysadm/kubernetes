@@ -438,7 +438,7 @@ func (r *EvictionREST) checkAndDecrement(namespace string, podName string, pdb p
 	}
 
 	// If this is a dry-run, we don't need to go any further than that.
-	if dryRun {
+	if dryRun == true {
 		return nil
 	}
 
@@ -475,7 +475,8 @@ func (r *EvictionREST) getPodDisruptionBudgets(ctx context.Context, pod *api.Pod
 			// This object has an invalid selector, it does not match the pod
 			continue
 		}
-		if !selector.Matches(labels.Set(pod.Labels)) {
+		// If a PDB with a nil or empty selector creeps in, it should match nothing, not everything.
+		if selector.Empty() || !selector.Matches(labels.Set(pod.Labels)) {
 			continue
 		}
 

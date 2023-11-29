@@ -31,7 +31,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
-	"k8s.io/cli-runtime/pkg/genericiooptions"
 	"k8s.io/cli-runtime/pkg/printers"
 	"k8s.io/cli-runtime/pkg/resource"
 	"k8s.io/client-go/kubernetes"
@@ -124,19 +123,20 @@ type EnvOptions struct {
 	resources              []string
 	output                 string
 	dryRunStrategy         cmdutil.DryRunStrategy
+	dryRunVerifier         *resource.QueryParamVerifier
 	builder                func() *resource.Builder
 	updatePodSpecForObject polymorphichelpers.UpdatePodSpecForObjectFunc
 	namespace              string
 	enforceNamespace       bool
 	clientset              *kubernetes.Clientset
 
-	genericiooptions.IOStreams
+	genericclioptions.IOStreams
 	WarningPrinter *printers.WarningPrinter
 }
 
 // NewEnvOptions returns an EnvOptions indicating all containers in the selected
 // pod templates are selected by default and allowing environment to be overwritten
-func NewEnvOptions(streams genericiooptions.IOStreams) *EnvOptions {
+func NewEnvOptions(streams genericclioptions.IOStreams) *EnvOptions {
 	return &EnvOptions{
 		PrintFlags: genericclioptions.NewPrintFlags("env updated").WithTypeSetter(scheme.Scheme),
 
@@ -147,7 +147,7 @@ func NewEnvOptions(streams genericiooptions.IOStreams) *EnvOptions {
 }
 
 // NewCmdEnv implements the OpenShift cli env command
-func NewCmdEnv(f cmdutil.Factory, streams genericiooptions.IOStreams) *cobra.Command {
+func NewCmdEnv(f cmdutil.Factory, streams genericclioptions.IOStreams) *cobra.Command {
 	o := NewEnvOptions(streams)
 
 	cmd := &cobra.Command{
@@ -231,6 +231,11 @@ func (o *EnvOptions) Complete(f cmdutil.Factory, cmd *cobra.Command, args []stri
 	if err != nil {
 		return err
 	}
+	dynamicClient, err := f.DynamicClient()
+	if err != nil {
+		return err
+	}
+	o.dryRunVerifier = resource.NewQueryParamVerifier(dynamicClient, f.OpenAPIGetter(), resource.QueryParamDryRun)
 
 	cmdutil.PrintFlagsWithDryRunStrategy(o.PrintFlags, o.dryRunStrategy)
 	printer, err := o.PrintFlags.ToPrinter()
@@ -517,6 +522,13 @@ func (o *EnvOptions) RunEnv() error {
 				allErrs = append(allErrs, err)
 			}
 			continue
+		}
+
+		if o.dryRunStrategy == cmdutil.DryRunServer {
+			if err := o.dryRunVerifier.HasSupport(info.Mapping.GroupVersionKind); err != nil {
+				allErrs = append(allErrs, err)
+				continue
+			}
 		}
 
 		actual, err := resource.

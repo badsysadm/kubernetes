@@ -32,7 +32,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
-	e2edeployment "k8s.io/kubernetes/test/e2e/framework/deployment"
 	e2eskipper "k8s.io/kubernetes/test/e2e/framework/skipper"
 	"k8s.io/kubernetes/test/e2e/instrumentation/monitoring"
 	admissionapi "k8s.io/pod-security-admission/api"
@@ -59,10 +58,10 @@ var _ = SIGDescribe("[HPA] [Feature:CustomMetricsAutoscaling] Horizontal pod aut
 	})
 
 	f := framework.NewDefaultFramework("horizontal-pod-autoscaling")
-	f.NamespacePodSecurityLevel = admissionapi.LevelPrivileged
+	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 
 	ginkgo.Describe("with Custom Metric of type Pod from Stackdriver", func() {
-		ginkgo.It("should scale down", func(ctx context.Context) {
+		ginkgo.It("should scale down", func() {
 			initialReplicas := 2
 			// metric should cause scale down
 			metricValue := int64(100)
@@ -78,10 +77,10 @@ var _ = SIGDescribe("[HPA] [Feature:CustomMetricsAutoscaling] Horizontal pod aut
 				deployment:      monitoring.SimpleStackdriverExporterDeployment(stackdriverExporterDeployment, f.Namespace.ObjectMeta.Name, int32(initialReplicas), metricValue),
 				hpa:             hpa("custom-metrics-pods-hpa", f.Namespace.ObjectMeta.Name, stackdriverExporterDeployment, 1, 3, metricSpecs),
 			}
-			tc.Run(ctx)
+			tc.Run()
 		})
 
-		ginkgo.It("should scale up with two metrics", func(ctx context.Context) {
+		ginkgo.It("should scale up with two metrics", func() {
 			initialReplicas := 1
 			// metric 1 would cause a scale down, if not for metric 2
 			metric1Value := int64(100)
@@ -113,10 +112,10 @@ var _ = SIGDescribe("[HPA] [Feature:CustomMetricsAutoscaling] Horizontal pod aut
 				deployment:      monitoring.StackdriverExporterDeployment(stackdriverExporterDeployment, f.Namespace.ObjectMeta.Name, int32(initialReplicas), containers),
 				hpa:             hpa("custom-metrics-pods-hpa", f.Namespace.ObjectMeta.Name, stackdriverExporterDeployment, 1, 3, metricSpecs),
 			}
-			tc.Run(ctx)
+			tc.Run()
 		})
 
-		ginkgo.It("should scale down with Prometheus", func(ctx context.Context) {
+		ginkgo.It("should scale down with Prometheus", func() {
 			initialReplicas := 2
 			// metric should cause scale down
 			metricValue := int64(100)
@@ -132,60 +131,62 @@ var _ = SIGDescribe("[HPA] [Feature:CustomMetricsAutoscaling] Horizontal pod aut
 				deployment:      monitoring.PrometheusExporterDeployment(stackdriverExporterDeployment, f.Namespace.ObjectMeta.Name, int32(initialReplicas), metricValue),
 				hpa:             hpa("custom-metrics-pods-hpa", f.Namespace.ObjectMeta.Name, stackdriverExporterDeployment, 1, 3, metricSpecs),
 			}
-			tc.Run(ctx)
+			tc.Run()
 		})
 	})
 
 	ginkgo.Describe("with Custom Metric of type Object from Stackdriver", func() {
-		ginkgo.It("should scale down", func(ctx context.Context) {
+		ginkgo.It("should scale down", func() {
 			initialReplicas := 2
 			// metric should cause scale down
 			metricValue := int64(100)
 			metricTarget := 2 * metricValue
 			metricSpecs := []autoscalingv2.MetricSpec{
-				objectMetricSpecWithValueTarget(metricTarget),
+				objectMetricSpecWithAverageValueTarget(metricTarget),
 			}
 			tc := CustomMetricTestCase{
 				framework:       f,
 				kubeClient:      f.ClientSet,
 				initialReplicas: initialReplicas,
 				scaledReplicas:  1,
-				deployment:      noExporterDeployment(dummyDeploymentName, f.Namespace.ObjectMeta.Name, int32(initialReplicas)),
-				pod:             monitoring.StackdriverExporterPod(stackdriverExporterPod, f.Namespace.Name, stackdriverExporterPod, monitoring.CustomMetricName, metricValue),
-				hpa:             hpa("custom-metrics-objects-hpa", f.Namespace.ObjectMeta.Name, dummyDeploymentName, 1, 3, metricSpecs),
+				// Metric exported by deployment is ignored
+				deployment: monitoring.SimpleStackdriverExporterDeployment(dummyDeploymentName, f.Namespace.ObjectMeta.Name, int32(initialReplicas), 0 /* ignored */),
+				pod:        monitoring.StackdriverExporterPod(stackdriverExporterPod, f.Namespace.Name, stackdriverExporterPod, monitoring.CustomMetricName, metricValue),
+				hpa:        hpa("custom-metrics-objects-hpa", f.Namespace.ObjectMeta.Name, dummyDeploymentName, 1, 3, metricSpecs),
 			}
-			tc.Run(ctx)
+			tc.Run()
 		})
 
-		ginkgo.It("should scale down to 0", func(ctx context.Context) {
+		ginkgo.It("should scale down to 0", func() {
 			initialReplicas := 2
 			// metric should cause scale down
 			metricValue := int64(0)
 			metricTarget := int64(200)
 			metricSpecs := []autoscalingv2.MetricSpec{
-				objectMetricSpecWithValueTarget(metricTarget),
+				objectMetricSpecWithAverageValueTarget(metricTarget),
 			}
 			tc := CustomMetricTestCase{
 				framework:       f,
 				kubeClient:      f.ClientSet,
 				initialReplicas: initialReplicas,
 				scaledReplicas:  0,
-				deployment:      noExporterDeployment(dummyDeploymentName, f.Namespace.ObjectMeta.Name, int32(initialReplicas)),
-				pod:             monitoring.StackdriverExporterPod(stackdriverExporterPod, f.Namespace.Name, stackdriverExporterPod, monitoring.CustomMetricName, metricValue),
-				hpa:             hpa("custom-metrics-objects-hpa", f.Namespace.ObjectMeta.Name, dummyDeploymentName, 0, 3, metricSpecs),
+				// Metric exported by deployment is ignored
+				deployment: monitoring.SimpleStackdriverExporterDeployment(dummyDeploymentName, f.Namespace.ObjectMeta.Name, int32(initialReplicas), 0 /* ignored */),
+				pod:        monitoring.StackdriverExporterPod(stackdriverExporterPod, f.Namespace.Name, stackdriverExporterPod, monitoring.CustomMetricName, metricValue),
+				hpa:        hpa("custom-metrics-objects-hpa", f.Namespace.ObjectMeta.Name, dummyDeploymentName, 0, 3, metricSpecs),
 			}
-			tc.Run(ctx)
+			tc.Run()
 		})
 	})
 
 	ginkgo.Describe("with External Metric from Stackdriver", func() {
-		ginkgo.It("should scale down with target value", func(ctx context.Context) {
+		ginkgo.It("should scale down with target value", func() {
 			initialReplicas := 2
 			// metric should cause scale down
 			metricValue := externalMetricValue
 			metricTarget := 3 * metricValue
 			metricSpecs := []autoscalingv2.MetricSpec{
-				externalMetricSpecWithTarget("target", f.Namespace.ObjectMeta.Name, externalMetricTarget{
+				externalMetricSpecWithTarget("target", externalMetricTarget{
 					value:     metricTarget,
 					isAverage: false,
 				}),
@@ -195,20 +196,21 @@ var _ = SIGDescribe("[HPA] [Feature:CustomMetricsAutoscaling] Horizontal pod aut
 				kubeClient:      f.ClientSet,
 				initialReplicas: initialReplicas,
 				scaledReplicas:  1,
-				deployment:      noExporterDeployment(dummyDeploymentName, f.Namespace.ObjectMeta.Name, int32(initialReplicas)),
-				pod:             monitoring.StackdriverExporterPod(stackdriverExporterPod, f.Namespace.Name, stackdriverExporterPod, "target", metricValue),
-				hpa:             hpa("custom-metrics-external-hpa", f.Namespace.ObjectMeta.Name, dummyDeploymentName, 1, 3, metricSpecs),
+				// Metric exported by deployment is ignored
+				deployment: monitoring.SimpleStackdriverExporterDeployment(dummyDeploymentName, f.Namespace.ObjectMeta.Name, int32(initialReplicas), 0 /* ignored */),
+				pod:        monitoring.StackdriverExporterPod(stackdriverExporterPod, f.Namespace.Name, stackdriverExporterPod, "target", metricValue),
+				hpa:        hpa("custom-metrics-external-hpa", f.Namespace.ObjectMeta.Name, dummyDeploymentName, 1, 3, metricSpecs),
 			}
-			tc.Run(ctx)
+			tc.Run()
 		})
 
-		ginkgo.It("should scale down with target average value", func(ctx context.Context) {
+		ginkgo.It("should scale down with target average value", func() {
 			initialReplicas := 2
 			// metric should cause scale down
 			metricValue := externalMetricValue
 			metricAverageTarget := 3 * metricValue
 			metricSpecs := []autoscalingv2.MetricSpec{
-				externalMetricSpecWithTarget("target_average", f.Namespace.ObjectMeta.Name, externalMetricTarget{
+				externalMetricSpecWithTarget("target_average", externalMetricTarget{
 					value:     metricAverageTarget,
 					isAverage: true,
 				}),
@@ -218,14 +220,15 @@ var _ = SIGDescribe("[HPA] [Feature:CustomMetricsAutoscaling] Horizontal pod aut
 				kubeClient:      f.ClientSet,
 				initialReplicas: initialReplicas,
 				scaledReplicas:  1,
-				deployment:      noExporterDeployment(dummyDeploymentName, f.Namespace.ObjectMeta.Name, int32(initialReplicas)),
-				pod:             monitoring.StackdriverExporterPod(stackdriverExporterPod, f.Namespace.Name, stackdriverExporterPod, "target_average", externalMetricValue),
-				hpa:             hpa("custom-metrics-external-hpa", f.Namespace.ObjectMeta.Name, dummyDeploymentName, 1, 3, metricSpecs),
+				// Metric exported by deployment is ignored
+				deployment: monitoring.SimpleStackdriverExporterDeployment(dummyDeploymentName, f.Namespace.ObjectMeta.Name, int32(initialReplicas), 0 /* ignored */),
+				pod:        monitoring.StackdriverExporterPod(stackdriverExporterPod, f.Namespace.Name, stackdriverExporterPod, "target_average", externalMetricValue),
+				hpa:        hpa("custom-metrics-external-hpa", f.Namespace.ObjectMeta.Name, dummyDeploymentName, 1, 3, metricSpecs),
 			}
-			tc.Run(ctx)
+			tc.Run()
 		})
 
-		ginkgo.It("should scale up with two metrics", func(ctx context.Context) {
+		ginkgo.It("should scale up with two metrics", func() {
 			initialReplicas := 1
 			// metric 1 would cause a scale down, if not for metric 2
 			metric1Value := externalMetricValue
@@ -234,13 +237,13 @@ var _ = SIGDescribe("[HPA] [Feature:CustomMetricsAutoscaling] Horizontal pod aut
 			metric2Value := externalMetricValue
 			metric2Target := int64(math.Ceil(0.5 * float64(metric2Value)))
 			metricSpecs := []autoscalingv2.MetricSpec{
-				externalMetricSpecWithTarget("external_metric_1", f.Namespace.ObjectMeta.Name, externalMetricTarget{
+				externalMetricSpecWithTarget("external_metric_1", externalMetricTarget{
 					value:     metric1Target,
-					isAverage: true,
+					isAverage: false,
 				}),
-				externalMetricSpecWithTarget("external_metric_2", f.Namespace.ObjectMeta.Name, externalMetricTarget{
+				externalMetricSpecWithTarget("external_metric_2", externalMetricTarget{
 					value:     metric2Target,
-					isAverage: true,
+					isAverage: false,
 				}),
 			}
 			containers := []monitoring.CustomMetricContainerSpec{
@@ -263,20 +266,20 @@ var _ = SIGDescribe("[HPA] [Feature:CustomMetricsAutoscaling] Horizontal pod aut
 				deployment:      monitoring.StackdriverExporterDeployment(dummyDeploymentName, f.Namespace.ObjectMeta.Name, int32(initialReplicas), containers),
 				hpa:             hpa("custom-metrics-external-hpa", f.Namespace.ObjectMeta.Name, dummyDeploymentName, 1, 3, metricSpecs),
 			}
-			tc.Run(ctx)
+			tc.Run()
 		})
 	})
 
 	ginkgo.Describe("with multiple metrics of different types", func() {
-		ginkgo.It("should scale up when one metric is missing (Pod and External metrics)", func(ctx context.Context) {
+		ginkgo.It("should scale up when one metric is missing (Pod and External metrics)", func() {
 			initialReplicas := 1
 			// First metric a pod metric which is missing.
 			// Second metric is external metric which is present, it should cause scale up.
 			metricSpecs := []autoscalingv2.MetricSpec{
 				podMetricSpecWithAverageValueTarget(monitoring.CustomMetricName, 2*externalMetricValue),
-				externalMetricSpecWithTarget("external_metric", f.Namespace.ObjectMeta.Name, externalMetricTarget{
+				externalMetricSpecWithTarget("external_metric", externalMetricTarget{
 					value:     int64(math.Ceil(0.5 * float64(externalMetricValue))),
-					isAverage: true,
+					isAverage: false,
 				}),
 			}
 			containers := []monitoring.CustomMetricContainerSpec{
@@ -294,17 +297,17 @@ var _ = SIGDescribe("[HPA] [Feature:CustomMetricsAutoscaling] Horizontal pod aut
 				scaledReplicas:  3,
 				deployment:      monitoring.StackdriverExporterDeployment(dummyDeploymentName, f.Namespace.ObjectMeta.Name, int32(initialReplicas), containers),
 				hpa:             hpa("multiple-metrics", f.Namespace.ObjectMeta.Name, dummyDeploymentName, 1, 3, metricSpecs)}
-			tc.Run(ctx)
+			tc.Run()
 		})
 
-		ginkgo.It("should scale up when one metric is missing (Resource and Object metrics)", func(ctx context.Context) {
+		ginkgo.It("should scale up when one metric is missing (Resource and Object metrics)", func() {
 			initialReplicas := 1
 			metricValue := int64(100)
 			// First metric a resource metric which is missing (no consumption).
 			// Second metric is object metric which is present, it should cause scale up.
 			metricSpecs := []autoscalingv2.MetricSpec{
 				resourceMetricSpecWithAverageUtilizationTarget(50),
-				objectMetricSpecWithValueTarget(int64(math.Ceil(0.5 * float64(metricValue)))),
+				objectMetricSpecWithAverageValueTarget(int64(math.Ceil(0.5 * float64(metricValue)))),
 			}
 			tc := CustomMetricTestCase{
 				framework:       f,
@@ -314,18 +317,18 @@ var _ = SIGDescribe("[HPA] [Feature:CustomMetricsAutoscaling] Horizontal pod aut
 				deployment:      monitoring.SimpleStackdriverExporterDeployment(dummyDeploymentName, f.Namespace.ObjectMeta.Name, int32(initialReplicas), 0),
 				pod:             monitoring.StackdriverExporterPod(stackdriverExporterPod, f.Namespace.Name, stackdriverExporterPod, monitoring.CustomMetricName, metricValue),
 				hpa:             hpa("multiple-metrics", f.Namespace.ObjectMeta.Name, dummyDeploymentName, 1, 3, metricSpecs)}
-			tc.Run(ctx)
+			tc.Run()
 		})
 
-		ginkgo.It("should not scale down when one metric is missing (Container Resource and External Metrics)", func(ctx context.Context) {
+		ginkgo.It("should not scale down when one metric is missing (Container Resource and External Metrics)", func() {
 			initialReplicas := 2
 			// First metric a container resource metric which is missing.
 			// Second metric is external metric which is present, it should cause scale down if the first metric wasn't missing.
 			metricSpecs := []autoscalingv2.MetricSpec{
 				containerResourceMetricSpecWithAverageUtilizationTarget("container-resource-metric", 50),
-				externalMetricSpecWithTarget("external_metric", f.Namespace.ObjectMeta.Name, externalMetricTarget{
+				externalMetricSpecWithTarget("external_metric", externalMetricTarget{
 					value:     2 * externalMetricValue,
-					isAverage: true,
+					isAverage: false,
 				}),
 			}
 			containers := []monitoring.CustomMetricContainerSpec{
@@ -344,16 +347,16 @@ var _ = SIGDescribe("[HPA] [Feature:CustomMetricsAutoscaling] Horizontal pod aut
 				verifyStability: true,
 				deployment:      monitoring.StackdriverExporterDeployment(dummyDeploymentName, f.Namespace.ObjectMeta.Name, int32(initialReplicas), containers),
 				hpa:             hpa("multiple-metrics", f.Namespace.ObjectMeta.Name, dummyDeploymentName, 1, 3, metricSpecs)}
-			tc.Run(ctx)
+			tc.Run()
 		})
 
-		ginkgo.It("should not scale down when one metric is missing (Pod and Object Metrics)", func(ctx context.Context) {
+		ginkgo.It("should not scale down when one metric is missing (Pod and Object Metrics)", func() {
 			initialReplicas := 2
 			metricValue := int64(100)
 			// First metric an object metric which is missing.
 			// Second metric is pod metric which is present, it should cause scale down if the first metric wasn't missing.
 			metricSpecs := []autoscalingv2.MetricSpec{
-				objectMetricSpecWithValueTarget(int64(math.Ceil(0.5 * float64(metricValue)))),
+				objectMetricSpecWithAverageValueTarget(int64(math.Ceil(0.5 * float64(metricValue)))),
 				podMetricSpecWithAverageValueTarget("pod_metric", 2*metricValue),
 			}
 			containers := []monitoring.CustomMetricContainerSpec{
@@ -371,7 +374,7 @@ var _ = SIGDescribe("[HPA] [Feature:CustomMetricsAutoscaling] Horizontal pod aut
 				verifyStability: true,
 				deployment:      monitoring.StackdriverExporterDeployment(dummyDeploymentName, f.Namespace.ObjectMeta.Name, int32(initialReplicas), containers),
 				hpa:             hpa("multiple-metrics", f.Namespace.ObjectMeta.Name, dummyDeploymentName, 1, 3, metricSpecs)}
-			tc.Run(ctx)
+			tc.Run()
 		})
 	})
 
@@ -390,9 +393,10 @@ type CustomMetricTestCase struct {
 }
 
 // Run starts test case.
-func (tc *CustomMetricTestCase) Run(ctx context.Context) {
+func (tc *CustomMetricTestCase) Run() {
 	projectID := framework.TestContext.CloudConfig.ProjectID
 
+	ctx := context.Background()
 	client, err := google.DefaultClient(ctx, gcm.CloudPlatformScope)
 	if err != nil {
 		framework.Failf("Failed to initialize gcm default client, %v", err)
@@ -429,38 +433,38 @@ func (tc *CustomMetricTestCase) Run(ctx context.Context) {
 	}
 
 	// Run application that exports the metric
-	err = createDeploymentToScale(ctx, tc.framework, tc.kubeClient, tc.deployment, tc.pod)
+	err = createDeploymentToScale(tc.framework, tc.kubeClient, tc.deployment, tc.pod)
 	if err != nil {
 		framework.Failf("Failed to create stackdriver-exporter pod: %v", err)
 	}
-	ginkgo.DeferCleanup(cleanupDeploymentsToScale, tc.framework, tc.kubeClient, tc.deployment, tc.pod)
+	defer cleanupDeploymentsToScale(tc.framework, tc.kubeClient, tc.deployment, tc.pod)
 
 	// Wait for the deployment to run
-	waitForReplicas(ctx, tc.deployment.ObjectMeta.Name, tc.framework.Namespace.ObjectMeta.Name, tc.kubeClient, 15*time.Minute, tc.initialReplicas)
+	waitForReplicas(tc.deployment.ObjectMeta.Name, tc.framework.Namespace.ObjectMeta.Name, tc.kubeClient, 15*time.Minute, tc.initialReplicas)
 
 	// Autoscale the deployment
-	_, err = tc.kubeClient.AutoscalingV2().HorizontalPodAutoscalers(tc.framework.Namespace.ObjectMeta.Name).Create(ctx, tc.hpa, metav1.CreateOptions{})
+	_, err = tc.kubeClient.AutoscalingV2().HorizontalPodAutoscalers(tc.framework.Namespace.ObjectMeta.Name).Create(context.TODO(), tc.hpa, metav1.CreateOptions{})
 	if err != nil {
 		framework.Failf("Failed to create HPA: %v", err)
 	}
-	ginkgo.DeferCleanup(framework.IgnoreNotFound(tc.kubeClient.AutoscalingV2().HorizontalPodAutoscalers(tc.framework.Namespace.ObjectMeta.Name).Delete), tc.hpa.ObjectMeta.Name, metav1.DeleteOptions{})
+	defer tc.kubeClient.AutoscalingV2().HorizontalPodAutoscalers(tc.framework.Namespace.ObjectMeta.Name).Delete(context.TODO(), tc.hpa.ObjectMeta.Name, metav1.DeleteOptions{})
 
-	waitForReplicas(ctx, tc.deployment.ObjectMeta.Name, tc.framework.Namespace.ObjectMeta.Name, tc.kubeClient, 15*time.Minute, tc.scaledReplicas)
+	waitForReplicas(tc.deployment.ObjectMeta.Name, tc.framework.Namespace.ObjectMeta.Name, tc.kubeClient, 15*time.Minute, tc.scaledReplicas)
 
 	if tc.verifyStability {
-		ensureDesiredReplicasInRange(ctx, tc.deployment.ObjectMeta.Name, tc.framework.Namespace.ObjectMeta.Name, tc.kubeClient, tc.scaledReplicas, tc.scaledReplicas, 10*time.Minute)
+		ensureDesiredReplicasInRange(tc.deployment.ObjectMeta.Name, tc.framework.Namespace.ObjectMeta.Name, tc.kubeClient, tc.scaledReplicas, tc.scaledReplicas, 10*time.Minute)
 	}
 }
 
-func createDeploymentToScale(ctx context.Context, f *framework.Framework, cs clientset.Interface, deployment *appsv1.Deployment, pod *v1.Pod) error {
+func createDeploymentToScale(f *framework.Framework, cs clientset.Interface, deployment *appsv1.Deployment, pod *v1.Pod) error {
 	if deployment != nil {
-		_, err := cs.AppsV1().Deployments(f.Namespace.ObjectMeta.Name).Create(ctx, deployment, metav1.CreateOptions{})
+		_, err := cs.AppsV1().Deployments(f.Namespace.ObjectMeta.Name).Create(context.TODO(), deployment, metav1.CreateOptions{})
 		if err != nil {
 			return err
 		}
 	}
 	if pod != nil {
-		_, err := cs.CoreV1().Pods(f.Namespace.ObjectMeta.Name).Create(ctx, pod, metav1.CreateOptions{})
+		_, err := cs.CoreV1().Pods(f.Namespace.ObjectMeta.Name).Create(context.TODO(), pod, metav1.CreateOptions{})
 		if err != nil {
 			return err
 		}
@@ -468,12 +472,12 @@ func createDeploymentToScale(ctx context.Context, f *framework.Framework, cs cli
 	return nil
 }
 
-func cleanupDeploymentsToScale(ctx context.Context, f *framework.Framework, cs clientset.Interface, deployment *appsv1.Deployment, pod *v1.Pod) {
+func cleanupDeploymentsToScale(f *framework.Framework, cs clientset.Interface, deployment *appsv1.Deployment, pod *v1.Pod) {
 	if deployment != nil {
-		_ = cs.AppsV1().Deployments(f.Namespace.ObjectMeta.Name).Delete(ctx, deployment.ObjectMeta.Name, metav1.DeleteOptions{})
+		_ = cs.AppsV1().Deployments(f.Namespace.ObjectMeta.Name).Delete(context.TODO(), deployment.ObjectMeta.Name, metav1.DeleteOptions{})
 	}
 	if pod != nil {
-		_ = cs.CoreV1().Pods(f.Namespace.ObjectMeta.Name).Delete(ctx, pod.ObjectMeta.Name, metav1.DeleteOptions{})
+		_ = cs.CoreV1().Pods(f.Namespace.ObjectMeta.Name).Delete(context.TODO(), pod.ObjectMeta.Name, metav1.DeleteOptions{})
 	}
 }
 
@@ -492,7 +496,7 @@ func podMetricSpecWithAverageValueTarget(metric string, targetValue int64) autos
 	}
 }
 
-func objectMetricSpecWithValueTarget(targetValue int64) autoscalingv2.MetricSpec {
+func objectMetricSpecWithAverageValueTarget(targetValue int64) autoscalingv2.MetricSpec {
 	return autoscalingv2.MetricSpec{
 		Type: autoscalingv2.ObjectMetricSourceType,
 		Object: &autoscalingv2.ObjectMetricSource{
@@ -538,17 +542,19 @@ func containerResourceMetricSpecWithAverageUtilizationTarget(containerName strin
 	}
 }
 
-func externalMetricSpecWithTarget(metric string, namespace string, target externalMetricTarget) autoscalingv2.MetricSpec {
+func externalMetricSpecWithTarget(metric string, target externalMetricTarget) autoscalingv2.MetricSpec {
 	selector := &metav1.LabelSelector{
-		MatchLabels: map[string]string{"resource.type": "k8s_pod"},
+		MatchLabels: map[string]string{"resource.type": "gke_container"},
 		MatchExpressions: []metav1.LabelSelectorRequirement{
 			{
-				Key:      "resource.labels.namespace_name",
+				Key:      "resource.labels.namespace_id",
 				Operator: metav1.LabelSelectorOpIn,
-				Values:   []string{namespace},
+				// TODO(bskiba): change default to real namespace name once it is available
+				// from Stackdriver.
+				Values: []string{"default", "dummy"},
 			},
 			{
-				Key:      "resource.labels.pod_name",
+				Key:      "resource.labels.pod_id",
 				Operator: metav1.LabelSelectorOpExists,
 				Values:   []string{},
 			},
@@ -592,10 +598,10 @@ func hpa(name, namespace, deploymentName string, minReplicas, maxReplicas int32,
 	}
 }
 
-func waitForReplicas(ctx context.Context, deploymentName, namespace string, cs clientset.Interface, timeout time.Duration, desiredReplicas int) {
+func waitForReplicas(deploymentName, namespace string, cs clientset.Interface, timeout time.Duration, desiredReplicas int) {
 	interval := 20 * time.Second
-	err := wait.PollUntilContextTimeout(ctx, interval, timeout, true, func(ctx context.Context) (bool, error) {
-		deployment, err := cs.AppsV1().Deployments(namespace).Get(ctx, deploymentName, metav1.GetOptions{})
+	err := wait.PollImmediate(interval, timeout, func() (bool, error) {
+		deployment, err := cs.AppsV1().Deployments(namespace).Get(context.TODO(), deploymentName, metav1.GetOptions{})
 		if err != nil {
 			framework.Failf("Failed to get replication controller %s: %v", deployment, err)
 		}
@@ -608,10 +614,10 @@ func waitForReplicas(ctx context.Context, deploymentName, namespace string, cs c
 	}
 }
 
-func ensureDesiredReplicasInRange(ctx context.Context, deploymentName, namespace string, cs clientset.Interface, minDesiredReplicas, maxDesiredReplicas int, timeout time.Duration) {
+func ensureDesiredReplicasInRange(deploymentName, namespace string, cs clientset.Interface, minDesiredReplicas, maxDesiredReplicas int, timeout time.Duration) {
 	interval := 60 * time.Second
-	err := wait.PollUntilContextTimeout(ctx, interval, timeout, true, func(ctx context.Context) (bool, error) {
-		deployment, err := cs.AppsV1().Deployments(namespace).Get(ctx, deploymentName, metav1.GetOptions{})
+	err := wait.PollImmediate(interval, timeout, func() (bool, error) {
+		deployment, err := cs.AppsV1().Deployments(namespace).Get(context.TODO(), deploymentName, metav1.GetOptions{})
 		if err != nil {
 			framework.Failf("Failed to get replication controller %s: %v", deployment, err)
 		}
@@ -626,24 +632,9 @@ func ensureDesiredReplicasInRange(ctx context.Context, deploymentName, namespace
 		}
 	})
 	// The call above always returns an error, but if it is timeout, it's OK (condition satisfied all the time).
-	if wait.Interrupted(err) {
+	if err == wait.ErrWaitTimeout {
 		framework.Logf("Number of replicas was stable over %v", timeout)
 		return
 	}
 	framework.ExpectNoErrorWithOffset(1, err)
-}
-
-func noExporterDeployment(name, namespace string, replicas int32) *appsv1.Deployment {
-	d := e2edeployment.NewDeployment(name, replicas, map[string]string{"name": name}, "", "", appsv1.RollingUpdateDeploymentStrategyType)
-	d.ObjectMeta.Namespace = namespace
-	d.Spec.Template.Spec = v1.PodSpec{Containers: []v1.Container{
-		{
-			Name:            "sleeper",
-			Image:           "registry.k8s.io/e2e-test-images/agnhost:2.40",
-			ImagePullPolicy: v1.PullAlways,
-			Command:         []string{"/agnhost"},
-			Args:            []string{"pause"}, // do nothing forever
-		},
-	}}
-	return d
 }

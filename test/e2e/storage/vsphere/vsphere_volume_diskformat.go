@@ -58,7 +58,7 @@ import (
 
 var _ = utils.SIGDescribe("Volume Disk Format [Feature:vsphere]", func() {
 	f := framework.NewDefaultFramework("volume-disk-format")
-	f.NamespacePodSecurityLevel = admissionapi.LevelPrivileged
+	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	const (
 		NodeLabelKey = "vsphere_e2e_label_volume_diskformat"
 	)
@@ -69,33 +69,33 @@ var _ = utils.SIGDescribe("Volume Disk Format [Feature:vsphere]", func() {
 		nodeKeyValueLabel map[string]string
 		nodeLabelValue    string
 	)
-	ginkgo.BeforeEach(func(ctx context.Context) {
+	ginkgo.BeforeEach(func() {
 		e2eskipper.SkipUnlessProviderIs("vsphere")
 		Bootstrap(f)
 		client = f.ClientSet
 		namespace = f.Namespace.Name
-		nodeName = GetReadySchedulableRandomNodeInfo(ctx, client).Name
+		nodeName = GetReadySchedulableRandomNodeInfo(client).Name
 		nodeLabelValue = "vsphere_e2e_" + string(uuid.NewUUID())
 		nodeKeyValueLabel = map[string]string{NodeLabelKey: nodeLabelValue}
 		e2enode.AddOrUpdateLabelOnNode(client, nodeName, NodeLabelKey, nodeLabelValue)
 		ginkgo.DeferCleanup(e2enode.RemoveLabelOffNode, client, nodeName, NodeLabelKey)
 	})
 
-	ginkgo.It("verify disk format type - eagerzeroedthick is honored for dynamically provisioned pv using storageclass", func(ctx context.Context) {
+	ginkgo.It("verify disk format type - eagerzeroedthick is honored for dynamically provisioned pv using storageclass", func() {
 		ginkgo.By("Invoking Test for diskformat: eagerzeroedthick")
-		invokeTest(ctx, f, client, namespace, nodeName, nodeKeyValueLabel, "eagerzeroedthick")
+		invokeTest(f, client, namespace, nodeName, nodeKeyValueLabel, "eagerzeroedthick")
 	})
-	ginkgo.It("verify disk format type - zeroedthick is honored for dynamically provisioned pv using storageclass", func(ctx context.Context) {
+	ginkgo.It("verify disk format type - zeroedthick is honored for dynamically provisioned pv using storageclass", func() {
 		ginkgo.By("Invoking Test for diskformat: zeroedthick")
-		invokeTest(ctx, f, client, namespace, nodeName, nodeKeyValueLabel, "zeroedthick")
+		invokeTest(f, client, namespace, nodeName, nodeKeyValueLabel, "zeroedthick")
 	})
-	ginkgo.It("verify disk format type - thin is honored for dynamically provisioned pv using storageclass", func(ctx context.Context) {
+	ginkgo.It("verify disk format type - thin is honored for dynamically provisioned pv using storageclass", func() {
 		ginkgo.By("Invoking Test for diskformat: thin")
-		invokeTest(ctx, f, client, namespace, nodeName, nodeKeyValueLabel, "thin")
+		invokeTest(f, client, namespace, nodeName, nodeKeyValueLabel, "thin")
 	})
 })
 
-func invokeTest(ctx context.Context, f *framework.Framework, client clientset.Interface, namespace string, nodeName string, nodeKeyValueLabel map[string]string, diskFormat string) {
+func invokeTest(f *framework.Framework, client clientset.Interface, namespace string, nodeName string, nodeKeyValueLabel map[string]string, diskFormat string) {
 
 	framework.Logf("Invoking Test for DiskFomat: %s", diskFormat)
 	scParameters := make(map[string]string)
@@ -103,28 +103,30 @@ func invokeTest(ctx context.Context, f *framework.Framework, client clientset.In
 
 	ginkgo.By("Creating Storage Class With DiskFormat")
 	storageClassSpec := getVSphereStorageClassSpec("thinsc", scParameters, nil, "")
-	storageclass, err := client.StorageV1().StorageClasses().Create(ctx, storageClassSpec, metav1.CreateOptions{})
+	storageclass, err := client.StorageV1().StorageClasses().Create(context.TODO(), storageClassSpec, metav1.CreateOptions{})
 	framework.ExpectNoError(err)
 
-	ginkgo.DeferCleanup(framework.IgnoreNotFound(client.StorageV1().StorageClasses().Delete), storageclass.Name, metav1.DeleteOptions{})
+	defer client.StorageV1().StorageClasses().Delete(context.TODO(), storageclass.Name, metav1.DeleteOptions{})
 
 	ginkgo.By("Creating PVC using the Storage Class")
 	pvclaimSpec := getVSphereClaimSpecWithStorageClass(namespace, "2Gi", storageclass)
-	pvclaim, err := client.CoreV1().PersistentVolumeClaims(namespace).Create(ctx, pvclaimSpec, metav1.CreateOptions{})
+	pvclaim, err := client.CoreV1().PersistentVolumeClaims(namespace).Create(context.TODO(), pvclaimSpec, metav1.CreateOptions{})
 	framework.ExpectNoError(err)
 
-	ginkgo.DeferCleanup(framework.IgnoreNotFound(client.CoreV1().PersistentVolumeClaims(namespace).Delete), pvclaimSpec.Name, metav1.DeleteOptions{})
+	defer func() {
+		client.CoreV1().PersistentVolumeClaims(namespace).Delete(context.TODO(), pvclaimSpec.Name, metav1.DeleteOptions{})
+	}()
 
 	ginkgo.By("Waiting for claim to be in bound phase")
-	err = e2epv.WaitForPersistentVolumeClaimPhase(ctx, v1.ClaimBound, client, pvclaim.Namespace, pvclaim.Name, framework.Poll, f.Timeouts.ClaimProvision)
+	err = e2epv.WaitForPersistentVolumeClaimPhase(v1.ClaimBound, client, pvclaim.Namespace, pvclaim.Name, framework.Poll, f.Timeouts.ClaimProvision)
 	framework.ExpectNoError(err)
 
 	// Get new copy of the claim
-	pvclaim, err = client.CoreV1().PersistentVolumeClaims(pvclaim.Namespace).Get(ctx, pvclaim.Name, metav1.GetOptions{})
+	pvclaim, err = client.CoreV1().PersistentVolumeClaims(pvclaim.Namespace).Get(context.TODO(), pvclaim.Name, metav1.GetOptions{})
 	framework.ExpectNoError(err)
 
 	// Get the bound PV
-	pv, err := client.CoreV1().PersistentVolumes().Get(ctx, pvclaim.Spec.VolumeName, metav1.GetOptions{})
+	pv, err := client.CoreV1().PersistentVolumes().Get(context.TODO(), pvclaim.Spec.VolumeName, metav1.GetOptions{})
 	framework.ExpectNoError(err)
 
 	/*
@@ -134,39 +136,37 @@ func invokeTest(ctx context.Context, f *framework.Framework, client clientset.In
 	ginkgo.By("Creating pod to attach PV to the node")
 	// Create pod to attach Volume to Node
 	podSpec := getVSpherePodSpecWithClaim(pvclaim.Name, nodeKeyValueLabel, "while true ; do sleep 2 ; done")
-	pod, err := client.CoreV1().Pods(namespace).Create(ctx, podSpec, metav1.CreateOptions{})
+	pod, err := client.CoreV1().Pods(namespace).Create(context.TODO(), podSpec, metav1.CreateOptions{})
 	framework.ExpectNoError(err)
 
 	ginkgo.By("Waiting for pod to be running")
-	gomega.Expect(e2epod.WaitForPodNameRunningInNamespace(ctx, client, pod.Name, namespace)).To(gomega.Succeed())
+	gomega.Expect(e2epod.WaitForPodNameRunningInNamespace(client, pod.Name, namespace)).To(gomega.Succeed())
 
-	isAttached, err := diskIsAttached(ctx, pv.Spec.VsphereVolume.VolumePath, nodeName)
+	isAttached, err := diskIsAttached(pv.Spec.VsphereVolume.VolumePath, nodeName)
 	if !isAttached {
 		framework.Failf("Volume: %s is not attached to the node: %v", pv.Spec.VsphereVolume.VolumePath, nodeName)
 	}
 	framework.ExpectNoError(err)
 
 	ginkgo.By("Verify Disk Format")
-	if !verifyDiskFormat(ctx, client, nodeName, pv.Spec.VsphereVolume.VolumePath, diskFormat) {
-		framework.Failf("DiskFormat Verification Failed. Node: %s, VolumePath: %s, Expected Format: %s", nodeName, pv.Spec.VsphereVolume.VolumePath, diskFormat)
-	}
+	framework.ExpectEqual(verifyDiskFormat(client, nodeName, pv.Spec.VsphereVolume.VolumePath, diskFormat), true, "DiskFormat Verification Failed")
 
 	var volumePaths []string
 	volumePaths = append(volumePaths, pv.Spec.VsphereVolume.VolumePath)
 
 	ginkgo.By("Delete pod and wait for volume to be detached from node")
-	deletePodAndWaitForVolumeToDetach(ctx, f, client, pod, nodeName, volumePaths)
+	deletePodAndWaitForVolumeToDetach(f, client, pod, nodeName, volumePaths)
 
 }
 
-func verifyDiskFormat(ctx context.Context, client clientset.Interface, nodeName string, pvVolumePath string, diskFormat string) bool {
+func verifyDiskFormat(client clientset.Interface, nodeName string, pvVolumePath string, diskFormat string) bool {
 	ginkgo.By("Verifying disk format")
 	eagerlyScrub := false
 	thinProvisioned := false
 	diskFound := false
 	pvvmdkfileName := filepath.Base(pvVolumePath) + filepath.Ext(pvVolumePath)
 
-	ctx, cancel := context.WithCancel(ctx)
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	nodeInfo := TestContext.NodeMapper.GetNodeInfo(nodeName)
@@ -196,15 +196,15 @@ func verifyDiskFormat(ctx context.Context, client clientset.Interface, nodeName 
 	}
 	isDiskFormatCorrect := false
 	if diskFormat == "eagerzeroedthick" {
-		if eagerlyScrub && !thinProvisioned {
+		if eagerlyScrub == true && thinProvisioned == false {
 			isDiskFormatCorrect = true
 		}
 	} else if diskFormat == "zeroedthick" {
-		if !eagerlyScrub && !thinProvisioned {
+		if eagerlyScrub == false && thinProvisioned == false {
 			isDiskFormatCorrect = true
 		}
 	} else if diskFormat == "thin" {
-		if !eagerlyScrub && thinProvisioned {
+		if eagerlyScrub == false && thinProvisioned == true {
 			isDiskFormatCorrect = true
 		}
 	}

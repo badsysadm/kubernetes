@@ -17,17 +17,13 @@ limitations under the License.
 package library
 
 import (
-	"context"
 	"fmt"
 	"testing"
 
 	"github.com/google/cel-go/cel"
 	"github.com/google/cel-go/checker"
-	"github.com/google/cel-go/common/types"
 	"github.com/google/cel-go/ext"
-	exprpb "google.golang.org/genproto/googleapis/api/expr/v1alpha1"
-
-	"k8s.io/apiserver/pkg/authorization/authorizer"
+	expr "google.golang.org/genproto/googleapis/api/expr/v1alpha1"
 )
 
 const (
@@ -229,50 +225,14 @@ func TestStringLibrary(t *testing.T) {
 			expectRuntimeCost:  3,
 		},
 		{
-			name:               "lowerAsciiEquals",
-			expr:               "'ABCDEFGHIJ abcdefghij'.lowerAscii() == 'abcdefghij ABCDEFGHIJ'.lowerAscii()",
-			expectEsimatedCost: checker.CostEstimate{Min: 7, Max: 9},
-			expectRuntimeCost:  9,
-		},
-		{
 			name:               "upperAscii",
 			expr:               "'ABCDEFGHIJ abcdefghij'.upperAscii()",
 			expectEsimatedCost: checker.CostEstimate{Min: 3, Max: 3},
 			expectRuntimeCost:  3,
 		},
 		{
-			name:               "upperAsciiEquals",
-			expr:               "'ABCDEFGHIJ abcdefghij'.upperAscii() == 'abcdefghij ABCDEFGHIJ'.upperAscii()",
-			expectEsimatedCost: checker.CostEstimate{Min: 7, Max: 9},
-			expectRuntimeCost:  9,
-		},
-		{
-			name:               "quote",
-			expr:               "strings.quote('ABCDEFGHIJ abcdefghij')",
-			expectEsimatedCost: checker.CostEstimate{Min: 3, Max: 3},
-			expectRuntimeCost:  3,
-		},
-		{
-			name:               "quoteEquals",
-			expr:               "strings.quote('ABCDEFGHIJ abcdefghij') == strings.quote('ABCDEFGHIJ abcdefghij')",
-			expectEsimatedCost: checker.CostEstimate{Min: 7, Max: 11},
-			expectRuntimeCost:  9,
-		},
-		{
 			name:               "replace",
 			expr:               "'abc 123 def 123'.replace('123', '456')",
-			expectEsimatedCost: checker.CostEstimate{Min: 3, Max: 3},
-			expectRuntimeCost:  3,
-		},
-		{
-			name:               "replace between all chars",
-			expr:               "'abc 123 def 123'.replace('', 'x')",
-			expectEsimatedCost: checker.CostEstimate{Min: 3, Max: 3},
-			expectRuntimeCost:  3,
-		},
-		{
-			name:               "replace with empty",
-			expr:               "'abc 123 def 123'.replace('123', '')",
 			expectEsimatedCost: checker.CostEstimate{Min: 3, Max: 3},
 			expectRuntimeCost:  3,
 		},
@@ -351,196 +311,9 @@ func TestStringLibrary(t *testing.T) {
 	}
 }
 
-func TestAuthzLibrary(t *testing.T) {
-	cases := []struct {
-		name                string
-		expr                string
-		expectEstimatedCost checker.CostEstimate
-		expectRuntimeCost   uint64
-	}{
-		{
-			name:                "path",
-			expr:                "authorizer.path('/healthz')",
-			expectEstimatedCost: checker.CostEstimate{Min: 2, Max: 2},
-			expectRuntimeCost:   2,
-		},
-		{
-			name:                "resource",
-			expr:                "authorizer.group('apps').resource('deployments').subresource('status').namespace('test').name('backend')",
-			expectEstimatedCost: checker.CostEstimate{Min: 6, Max: 6},
-			expectRuntimeCost:   6,
-		},
-		{
-			name:                "path check allowed",
-			expr:                "authorizer.path('/healthz').check('get').allowed()",
-			expectEstimatedCost: checker.CostEstimate{Min: 350003, Max: 350003},
-			expectRuntimeCost:   350003,
-		},
-		{
-			name:                "resource check allowed",
-			expr:                "authorizer.group('apps').resource('deployments').subresource('status').namespace('test').name('backend').check('create').allowed()",
-			expectEstimatedCost: checker.CostEstimate{Min: 350007, Max: 350007},
-			expectRuntimeCost:   350007,
-		},
-		{
-			name:                "resource check reason",
-			expr:                "authorizer.group('apps').resource('deployments').subresource('status').namespace('test').name('backend').check('create').allowed()",
-			expectEstimatedCost: checker.CostEstimate{Min: 350007, Max: 350007},
-			expectRuntimeCost:   350007,
-		},
-		{
-			name:                "resource check errored",
-			expr:                "authorizer.group('apps').resource('deployments').subresource('status').namespace('test').name('backend').check('create').errored()",
-			expectEstimatedCost: checker.CostEstimate{Min: 350007, Max: 350007},
-			expectRuntimeCost:   350007,
-		},
-		{
-			name:                "resource check error",
-			expr:                "authorizer.group('apps').resource('deployments').subresource('status').namespace('test').name('backend').check('create').error()",
-			expectEstimatedCost: checker.CostEstimate{Min: 350007, Max: 350007},
-			expectRuntimeCost:   350007,
-		},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			testCost(t, tc.expr, tc.expectEstimatedCost, tc.expectRuntimeCost)
-		})
-	}
-}
-
-func TestQuantityCost(t *testing.T) {
-	cases := []struct {
-		name                string
-		expr                string
-		expectEstimatedCost checker.CostEstimate
-		expectRuntimeCost   uint64
-	}{
-		{
-			name:                "path",
-			expr:                `quantity("12Mi")`,
-			expectEstimatedCost: checker.CostEstimate{Min: 1, Max: 1},
-			expectRuntimeCost:   1,
-		},
-		{
-			name:                "isQuantity",
-			expr:                `isQuantity("20")`,
-			expectEstimatedCost: checker.CostEstimate{Min: 1, Max: 1},
-			expectRuntimeCost:   1,
-		},
-		{
-			name:                "isQuantity_megabytes",
-			expr:                `isQuantity("20M")`,
-			expectEstimatedCost: checker.CostEstimate{Min: 1, Max: 1},
-			expectRuntimeCost:   1,
-		},
-		{
-			name:                "equality_reflexivity",
-			expr:                `quantity("200M") == quantity("200M")`,
-			expectEstimatedCost: checker.CostEstimate{Min: 3, Max: 1844674407370955266},
-			expectRuntimeCost:   3,
-		},
-		{
-			name:                "equality_symmetry",
-			expr:                `quantity("200M") == quantity("0.2G") && quantity("0.2G") == quantity("200M")`,
-			expectEstimatedCost: checker.CostEstimate{Min: 3, Max: 3689348814741910532},
-			expectRuntimeCost:   6,
-		},
-		{
-			name:                "equality_transitivity",
-			expr:                `quantity("2M") == quantity("0.002G") && quantity("2000k") == quantity("2M") && quantity("0.002G") == quantity("2000k")`,
-			expectEstimatedCost: checker.CostEstimate{Min: 3, Max: 5534023222112865798},
-			expectRuntimeCost:   9,
-		},
-		{
-			name:                "quantity_less",
-			expr:                `quantity("50M").isLessThan(quantity("50Mi"))`,
-			expectEstimatedCost: checker.CostEstimate{Min: 3, Max: 3},
-			expectRuntimeCost:   3,
-		},
-		{
-			name:                "quantity_greater",
-			expr:                `quantity("50Mi").isGreaterThan(quantity("50M"))`,
-			expectEstimatedCost: checker.CostEstimate{Min: 3, Max: 3},
-			expectRuntimeCost:   3,
-		},
-		{
-			name:                "compare_equal",
-			expr:                `quantity("200M").compareTo(quantity("0.2G")) > 0`,
-			expectEstimatedCost: checker.CostEstimate{Min: 4, Max: 4},
-			expectRuntimeCost:   4,
-		},
-		{
-			name:                "add_quantity",
-			expr:                `quantity("50k").add(quantity("20")) == quantity("50.02k")`,
-			expectEstimatedCost: checker.CostEstimate{Min: 5, Max: 1844674407370955268},
-			expectRuntimeCost:   5,
-		},
-		{
-			name:                "sub_quantity",
-			expr:                `quantity("50k").sub(quantity("20")) == quantity("49.98k")`,
-			expectEstimatedCost: checker.CostEstimate{Min: 5, Max: 1844674407370955268},
-			expectRuntimeCost:   5,
-		},
-		{
-			name:                "sub_int",
-			expr:                `quantity("50k").sub(20) == quantity("49980")`,
-			expectEstimatedCost: checker.CostEstimate{Min: 4, Max: 1844674407370955267},
-			expectRuntimeCost:   4,
-		},
-		{
-			name:                "arith_chain_1",
-			expr:                `quantity("50k").add(20).sub(quantity("100k")).asInteger() > 0`,
-			expectEstimatedCost: checker.CostEstimate{Min: 6, Max: 6},
-			expectRuntimeCost:   6,
-		},
-		{
-			name:                "arith_chain",
-			expr:                `quantity("50k").add(20).sub(quantity("100k")).sub(-50000).asInteger() > 0`,
-			expectEstimatedCost: checker.CostEstimate{Min: 7, Max: 7},
-			expectRuntimeCost:   7,
-		},
-		{
-			name:                "as_integer",
-			expr:                `quantity("50k").asInteger() > 0`,
-			expectEstimatedCost: checker.CostEstimate{Min: 3, Max: 3},
-			expectRuntimeCost:   3,
-		},
-		{
-			name:                "is_integer",
-			expr:                `quantity("50").isInteger()`,
-			expectEstimatedCost: checker.CostEstimate{Min: 2, Max: 2},
-			expectRuntimeCost:   2,
-		},
-		{
-			name:                "as_float",
-			expr:                `quantity("50.703k").asApproximateFloat() > 0.0`,
-			expectEstimatedCost: checker.CostEstimate{Min: 3, Max: 3},
-			expectRuntimeCost:   3,
-		},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			testCost(t, tc.expr, tc.expectEstimatedCost, tc.expectRuntimeCost)
-		})
-	}
-}
-
 func testCost(t *testing.T, expr string, expectEsimatedCost checker.CostEstimate, expectRuntimeCost uint64) {
 	est := &CostEstimator{SizeEstimator: &testCostEstimator{}}
-	env, err := cel.NewEnv(
-		ext.Strings(ext.StringsVersion(2)),
-		URLs(),
-		Regex(),
-		Lists(),
-		Authz(),
-		Quantity(),
-	)
-	if err != nil {
-		t.Fatalf("%v", err)
-	}
-	env, err = env.Extend(cel.Variable("authorizer", AuthorizerType))
+	env, err := cel.NewEnv(append(k8sExtensionLibs, ext.Strings())...)
 	if err != nil {
 		t.Fatalf("%v", err)
 	}
@@ -559,7 +332,7 @@ func testCost(t *testing.T, expr string, expectEsimatedCost checker.CostEstimate
 	if err != nil {
 		t.Fatalf("%v", err)
 	}
-	_, details, err := prog.Eval(map[string]interface{}{"authorizer": NewAuthorizerVal(nil, alwaysAllowAuthorizer{})})
+	_, details, err := prog.Eval(map[string]interface{}{})
 	if err != nil {
 		t.Fatalf("%v", err)
 	}
@@ -569,130 +342,22 @@ func testCost(t *testing.T, expr string, expectEsimatedCost checker.CostEstimate
 	}
 }
 
-func TestSize(t *testing.T) {
-	exactSize := func(size int) checker.SizeEstimate {
-		return checker.SizeEstimate{Min: uint64(size), Max: uint64(size)}
-	}
-	exactSizes := func(sizes ...int) []checker.SizeEstimate {
-		results := make([]checker.SizeEstimate, len(sizes))
-		for i, size := range sizes {
-			results[i] = exactSize(size)
-		}
-		return results
-	}
-	cases := []struct {
-		name       string
-		function   string
-		overload   string
-		targetSize checker.SizeEstimate
-		argSizes   []checker.SizeEstimate
-		expectSize checker.SizeEstimate
-	}{
-		{
-			name:       "replace empty with char",
-			function:   "replace",
-			targetSize: exactSize(3),     // e.g. abc
-			argSizes:   exactSizes(0, 1), // e.g. replace "" with "_"
-			expectSize: exactSize(7),     // e.g. _a_b_c_
-		},
-		{
-			name:       "maybe replace char with empty",
-			function:   "replace",
-			targetSize: exactSize(3),
-			argSizes:   exactSizes(1, 0),
-			expectSize: checker.SizeEstimate{Min: 0, Max: 3},
-		},
-		{
-			name:       "maybe replace repeated",
-			function:   "replace",
-			targetSize: exactSize(4),
-			argSizes:   exactSizes(2, 4),
-			expectSize: checker.SizeEstimate{Min: 4, Max: 8},
-		},
-		{
-			name:       "maybe replace empty",
-			function:   "replace",
-			targetSize: exactSize(4),
-			argSizes:   []checker.SizeEstimate{{Min: 0, Max: 1}, {Min: 0, Max: 2}},
-			expectSize: checker.SizeEstimate{Min: 0, Max: 14}, // len(__a__a__a__a__) == 14
-		},
-		{
-			name:       "replace non-empty size range, maybe larger",
-			function:   "replace",
-			targetSize: exactSize(4),
-			argSizes:   []checker.SizeEstimate{{Min: 1, Max: 1}, {Min: 1, Max: 2}},
-			expectSize: checker.SizeEstimate{Min: 4, Max: 8},
-		},
-		{
-			name:       "replace non-empty size range, maybe smaller",
-			function:   "replace",
-			targetSize: exactSize(4),
-			argSizes:   []checker.SizeEstimate{{Min: 1, Max: 2}, {Min: 1, Max: 1}},
-			expectSize: checker.SizeEstimate{Min: 2, Max: 4},
-		},
-	}
-	est := &CostEstimator{SizeEstimator: &testCostEstimator{}}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			var targetNode checker.AstNode = testSizeNode{size: tc.targetSize}
-			argNodes := make([]checker.AstNode, len(tc.argSizes))
-			for i, arg := range tc.argSizes {
-				argNodes[i] = testSizeNode{size: arg}
-			}
-			result := est.EstimateCallCost(tc.function, tc.overload, &targetNode, argNodes)
-			if result.ResultSize == nil {
-				t.Fatalf("Expected ResultSize but got none")
-			}
-			if *result.ResultSize != tc.expectSize {
-				t.Fatalf("Expected %+v but got %+v", tc.expectSize, *result.ResultSize)
-			}
-		})
-	}
-}
-
-type testSizeNode struct {
-	size checker.SizeEstimate
-}
-
-func (t testSizeNode) Path() []string {
-	return nil // not needed
-}
-
-func (t testSizeNode) Type() *types.Type {
-	return nil // not needed
-}
-
-func (t testSizeNode) Expr() *exprpb.Expr {
-	return nil // not needed
-}
-
-func (t testSizeNode) ComputedSize() *checker.SizeEstimate {
-	return &t.size
-}
-
 type testCostEstimator struct {
 }
 
 func (t *testCostEstimator) EstimateSize(element checker.AstNode) *checker.SizeEstimate {
-	expr, err := cel.TypeToExprType(element.Type())
-	if err != nil {
-		return nil
-	}
-	switch expr.GetPrimitive() {
-	case exprpb.Type_STRING:
-		return &checker.SizeEstimate{Min: 0, Max: 12}
-	case exprpb.Type_BYTES:
-		return &checker.SizeEstimate{Min: 0, Max: 12}
+	switch t := element.Type().TypeKind.(type) {
+	case *expr.Type_Primitive:
+		switch t.Primitive {
+		case expr.Type_STRING:
+			return &checker.SizeEstimate{Min: 0, Max: 12}
+		case expr.Type_BYTES:
+			return &checker.SizeEstimate{Min: 0, Max: 12}
+		}
 	}
 	return nil
 }
 
 func (t *testCostEstimator) EstimateCallCost(function, overloadId string, target *checker.AstNode, args []checker.AstNode) *checker.CallEstimate {
 	return nil
-}
-
-type alwaysAllowAuthorizer struct{}
-
-func (f alwaysAllowAuthorizer) Authorize(ctx context.Context, a authorizer.Attributes) (authorizer.Decision, string, error) {
-	return authorizer.DecisionAllow, "", nil
 }

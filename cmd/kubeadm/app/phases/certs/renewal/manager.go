@@ -142,10 +142,6 @@ func NewManager(cfg *kubeadmapi.ClusterConfiguration, kubernetesDir string) (*Ma
 			fileName: kubeadmconstants.AdminKubeConfigFileName,
 		},
 		{
-			longName: "certificate embedded in the kubeconfig file for the super-admin",
-			fileName: kubeadmconstants.SuperAdminKubeConfigFileName,
-		},
-		{
 			longName: "certificate embedded in the kubeconfig file for the controller manager to use",
 			fileName: kubeadmconstants.ControllerManagerKubeConfigFileName,
 		},
@@ -231,8 +227,8 @@ func (rm *Manager) RenewUsingLocalCA(name string) (bool, error) {
 
 	// extract the certificate config
 	cfg := &pkiutil.CertConfig{
-		Config:              certToConfig(cert),
-		EncryptionAlgorithm: rm.cfg.EncryptionAlgorithmType(),
+		Config:             certToConfig(cert),
+		PublicKeyAlgorithm: rm.cfg.PublicKeyAlgorithm(),
 	}
 
 	// reads the CA
@@ -274,8 +270,8 @@ func (rm *Manager) CreateRenewCSR(name, outdir string) error {
 
 	// extracts the certificate config
 	cfg := &pkiutil.CertConfig{
-		Config:              certToConfig(cert),
-		EncryptionAlgorithm: rm.cfg.EncryptionAlgorithmType(),
+		Config:             certToConfig(cert),
+		PublicKeyAlgorithm: rm.cfg.PublicKeyAlgorithm(),
 	}
 
 	// generates the CSR request and save it

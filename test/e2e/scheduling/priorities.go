@@ -24,7 +24,6 @@ import (
 	"time"
 
 	"github.com/onsi/ginkgo/v2"
-	"github.com/onsi/gomega"
 
 	// ensure libs have a chance to initialize
 	_ "github.com/stretchr/testify/assert"
@@ -74,8 +73,8 @@ var podRequestedResource = &v1.ResourceRequirements{
 // nodesAreTooUtilized ensures that each node can support 2*crioMinMemLimit
 // We check for double because it needs to support at least the cri-o minimum
 // plus whatever delta between node usages (which could be up to or at least crioMinMemLimit)
-func nodesAreTooUtilized(ctx context.Context, cs clientset.Interface, nodeList *v1.NodeList) bool {
-	nodeNameToPodList := podListForEachNode(ctx, cs)
+func nodesAreTooUtilized(cs clientset.Interface, nodeList *v1.NodeList) bool {
+	nodeNameToPodList := podListForEachNode(cs)
 	for _, node := range nodeList.Items {
 		_, memFraction, _, memAllocatable := computeCPUMemFraction(node, podRequestedResource, nodeNameToPodList[node.Name])
 		if float64(memAllocatable)-(memFraction*float64(memAllocatable)) < float64(2*crioMinMemLimit) {
@@ -92,39 +91,42 @@ var _ = SIGDescribe("SchedulerPriorities [Serial]", func() {
 	var systemPodsNo int
 	var ns string
 	f := framework.NewDefaultFramework("sched-priority")
-	f.NamespacePodSecurityLevel = admissionapi.LevelBaseline
+	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelBaseline
 
-	ginkgo.BeforeEach(func(ctx context.Context) {
+	ginkgo.AfterEach(func() {
+	})
+
+	ginkgo.BeforeEach(func() {
 		cs = f.ClientSet
 		ns = f.Namespace.Name
 		nodeList = &v1.NodeList{}
 		var err error
 
-		e2enode.WaitForTotalHealthy(ctx, cs, time.Minute)
-		nodeList, err = e2enode.GetReadySchedulableNodes(ctx, cs)
+		e2enode.WaitForTotalHealthy(cs, time.Minute)
+		nodeList, err = e2enode.GetReadySchedulableNodes(cs)
 		if err != nil {
 			framework.Logf("Unexpected error occurred: %v", err)
 		}
 		framework.ExpectNoErrorWithOffset(0, err)
 
-		err = framework.CheckTestingNSDeletedExcept(ctx, cs, ns)
+		err = framework.CheckTestingNSDeletedExcept(cs, ns)
 		framework.ExpectNoError(err)
-		err = e2epod.WaitForPodsRunningReady(ctx, cs, metav1.NamespaceSystem, int32(systemPodsNo), 0, framework.PodReadyBeforeTimeout)
+		err = e2epod.WaitForPodsRunningReady(cs, metav1.NamespaceSystem, int32(systemPodsNo), 0, framework.PodReadyBeforeTimeout, map[string]string{})
 		framework.ExpectNoError(err)
 
 		// skip if the most utilized node has less than the cri-o minMemLimit available
 		// otherwise we will not be able to run the test pod once all nodes are balanced
-		if nodesAreTooUtilized(ctx, cs, nodeList) {
+		if nodesAreTooUtilized(cs, nodeList) {
 			ginkgo.Skip("nodes are too utilized to schedule test pods")
 		}
 	})
 
-	ginkgo.It("Pod should be scheduled to node that don't match the PodAntiAffinity terms", func(ctx context.Context) {
+	ginkgo.It("Pod should be scheduled to node that don't match the PodAntiAffinity terms", func() {
 
 		e2eskipper.SkipUnlessNodeCountIsAtLeast(2)
 
 		ginkgo.By("Trying to launch a pod with a label to get a node which can launch it.")
-		pod := runPausePod(ctx, f, pausePodConfig{
+		pod := runPausePod(f, pausePodConfig{
 			Name:   "pod-with-label-security-s1",
 			Labels: map[string]string{"security": "S1"},
 		})
@@ -132,7 +134,7 @@ var _ = SIGDescribe("SchedulerPriorities [Serial]", func() {
 
 		k := v1.LabelHostname
 		ginkgo.By("Verifying the node has a label " + k)
-		node, err := cs.CoreV1().Nodes().Get(ctx, nodeName, metav1.GetOptions{})
+		node, err := cs.CoreV1().Nodes().Get(context.TODO(), nodeName, metav1.GetOptions{})
 		framework.ExpectNoError(err)
 		if _, hasLabel := node.Labels[k]; !hasLabel {
 			// If the label is not exists, label all nodes for testing.
@@ -141,7 +143,7 @@ var _ = SIGDescribe("SchedulerPriorities [Serial]", func() {
 			k = "kubernetes.io/e2e-node-topologyKey"
 			v := "topologyvalue1"
 			e2enode.AddOrUpdateLabelOnNode(cs, nodeName, k, v)
-			e2enode.ExpectNodeHasLabel(ctx, cs, nodeName, k, v)
+			e2enode.ExpectNodeHasLabel(cs, nodeName, k, v)
 			defer e2enode.RemoveLabelOffNode(cs, nodeName, k)
 
 			ginkgo.By("Trying to apply a label on other nodes.")
@@ -149,18 +151,19 @@ var _ = SIGDescribe("SchedulerPriorities [Serial]", func() {
 			for _, node := range nodeList.Items {
 				if node.Name != nodeName {
 					e2enode.AddOrUpdateLabelOnNode(cs, node.Name, k, v)
-					e2enode.ExpectNodeHasLabel(ctx, cs, node.Name, k, v)
+					e2enode.ExpectNodeHasLabel(cs, node.Name, k, v)
 					defer e2enode.RemoveLabelOffNode(cs, node.Name, k)
 				}
 			}
 		}
 
 		// make the nodes have balanced cpu,mem usage
-		err = createBalancedPodForNodes(ctx, f, cs, ns, nodeList.Items, podRequestedResource, 0.6)
+		cleanUp, err := createBalancedPodForNodes(f, cs, ns, nodeList.Items, podRequestedResource, 0.6)
+		defer cleanUp()
 		framework.ExpectNoError(err)
 		ginkgo.By("Trying to launch the pod with podAntiAffinity.")
 		labelPodName := "pod-with-pod-antiaffinity"
-		pod = createPausePod(ctx, f, pausePodConfig{
+		pod = createPausePod(f, pausePodConfig{
 			Resources: podRequestedResource,
 			Name:      labelPodName,
 			Affinity: &v1.Affinity{
@@ -195,16 +198,17 @@ var _ = SIGDescribe("SchedulerPriorities [Serial]", func() {
 			},
 		})
 		ginkgo.By("Wait the pod becomes running")
-		framework.ExpectNoError(e2epod.WaitForPodNameRunningInNamespace(ctx, f.ClientSet, pod.Name, f.Namespace.Name))
-		labelPod, err := cs.CoreV1().Pods(ns).Get(ctx, labelPodName, metav1.GetOptions{})
+		framework.ExpectNoError(e2epod.WaitForPodNameRunningInNamespace(f.ClientSet, pod.Name, f.Namespace.Name))
+		labelPod, err := cs.CoreV1().Pods(ns).Get(context.TODO(), labelPodName, metav1.GetOptions{})
 		framework.ExpectNoError(err)
 		ginkgo.By("Verify the pod was scheduled to the expected node.")
-		gomega.Expect(labelPod.Spec.NodeName).ToNot(gomega.Equal(nodeName))
+		framework.ExpectNotEqual(labelPod.Spec.NodeName, nodeName)
 	})
 
-	ginkgo.It("Pod should be preferably scheduled to nodes pod can tolerate", func(ctx context.Context) {
+	ginkgo.It("Pod should be preferably scheduled to nodes pod can tolerate", func() {
 		// make the nodes have balanced cpu,mem usage ratio
-		err := createBalancedPodForNodes(ctx, f, cs, ns, nodeList.Items, podRequestedResource, 0.5)
+		cleanUp, err := createBalancedPodForNodes(f, cs, ns, nodeList.Items, podRequestedResource, 0.5)
+		defer cleanUp()
 		framework.ExpectNoError(err)
 		// Apply 10 taints to first node
 		nodeName := nodeList.Items[0].Name
@@ -232,44 +236,44 @@ var _ = SIGDescribe("SchedulerPriorities [Serial]", func() {
 		ginkgo.By("Trying to apply 10 (tolerable) taints on the first node.")
 		// We immediately defer the removal of these taints because addTaintToNode can
 		// panic and RemoveTaintsOffNode does not return an error if the taint does not exist.
-		ginkgo.DeferCleanup(e2enode.RemoveTaintsOffNode, cs, nodeName, tolerableTaints)
+		defer e2enode.RemoveTaintsOffNode(cs, nodeName, tolerableTaints)
 		for _, taint := range tolerableTaints {
-			addTaintToNode(ctx, cs, nodeName, taint)
+			addTaintToNode(cs, nodeName, taint)
 		}
 		// Apply the intolerable taints to each of the following nodes
 		ginkgo.By("Adding 10 intolerable taints to all other nodes")
 		for i := 1; i < len(nodeList.Items); i++ {
 			node := nodeList.Items[i]
-			ginkgo.DeferCleanup(e2enode.RemoveTaintsOffNode, cs, node.Name, intolerableTaints[node.Name])
+			defer e2enode.RemoveTaintsOffNode(cs, node.Name, intolerableTaints[node.Name])
 			for _, taint := range intolerableTaints[node.Name] {
-				addTaintToNode(ctx, cs, node.Name, taint)
+				addTaintToNode(cs, node.Name, taint)
 			}
 		}
 
 		tolerationPodName := "with-tolerations"
 		ginkgo.By("Create a pod that tolerates all the taints of the first node.")
-		pod := createPausePod(ctx, f, pausePodConfig{
+		pod := createPausePod(f, pausePodConfig{
 			Name:        tolerationPodName,
 			Tolerations: tolerations,
 		})
-		framework.ExpectNoError(e2epod.WaitForPodNameRunningInNamespace(ctx, f.ClientSet, pod.Name, f.Namespace.Name))
+		framework.ExpectNoError(e2epod.WaitForPodNameRunningInNamespace(f.ClientSet, pod.Name, f.Namespace.Name))
 
 		ginkgo.By("Pod should prefer scheduled to the node that pod can tolerate.")
-		tolePod, err := cs.CoreV1().Pods(ns).Get(ctx, tolerationPodName, metav1.GetOptions{})
+		tolePod, err := cs.CoreV1().Pods(ns).Get(context.TODO(), tolerationPodName, metav1.GetOptions{})
 		framework.ExpectNoError(err)
-		gomega.Expect(tolePod.Spec.NodeName).To(gomega.Equal(nodeName))
+		framework.ExpectEqual(tolePod.Spec.NodeName, nodeName)
 	})
 
 	ginkgo.Context("PodTopologySpread Scoring", func() {
 		var nodeNames []string
 		topologyKey := "kubernetes.io/e2e-pts-score"
 
-		ginkgo.BeforeEach(func(ctx context.Context) {
+		ginkgo.BeforeEach(func() {
 			if len(nodeList.Items) < 2 {
 				ginkgo.Skip("At least 2 nodes are required to run the test")
 			}
 			ginkgo.By("Trying to get 2 available nodes which can run pod")
-			nodeNames = Get2NodesThatCanRunPod(ctx, f)
+			nodeNames = Get2NodesThatCanRunPod(f)
 			ginkgo.By(fmt.Sprintf("Apply dedicated topologyKey %v for this test on the 2 nodes.", topologyKey))
 			for _, nodeName := range nodeNames {
 				e2enode.AddOrUpdateLabelOnNode(cs, nodeName, topologyKey, nodeName)
@@ -281,16 +285,17 @@ var _ = SIGDescribe("SchedulerPriorities [Serial]", func() {
 			}
 		})
 
-		ginkgo.It("validates pod should be preferably scheduled to node which makes the matching pods more evenly distributed", func(ctx context.Context) {
+		ginkgo.It("validates pod should be preferably scheduled to node which makes the matching pods more evenly distributed", func() {
 			var nodes []v1.Node
 			for _, nodeName := range nodeNames {
-				node, err := cs.CoreV1().Nodes().Get(ctx, nodeName, metav1.GetOptions{})
+				node, err := cs.CoreV1().Nodes().Get(context.TODO(), nodeName, metav1.GetOptions{})
 				framework.ExpectNoError(err)
 				nodes = append(nodes, *node)
 			}
 
 			// Make the nodes have balanced cpu,mem usage.
-			err := createBalancedPodForNodes(ctx, f, cs, ns, nodes, podRequestedResource, 0.5)
+			cleanUp, err := createBalancedPodForNodes(f, cs, ns, nodes, podRequestedResource, 0.5)
+			defer cleanUp()
 			framework.ExpectNoError(err)
 
 			replicas := 4
@@ -305,7 +310,7 @@ var _ = SIGDescribe("SchedulerPriorities [Serial]", func() {
 					NodeSelector: map[string]string{topologyKey: nodeNames[0]},
 				},
 			}
-			runPauseRS(ctx, f, rsConfig)
+			runPauseRS(f, rsConfig)
 
 			// Run a Pod with WhenUnsatisfiable:ScheduleAnyway.
 			podCfg := pausePodConfig{
@@ -347,25 +352,25 @@ var _ = SIGDescribe("SchedulerPriorities [Serial]", func() {
 					},
 				},
 			}
-			testPod := runPausePod(ctx, f, podCfg)
+			testPod := runPausePod(f, podCfg)
 			ginkgo.By(fmt.Sprintf("Verifying if the test-pod lands on node %q", nodeNames[1]))
-			gomega.Expect(testPod.Spec.NodeName).To(gomega.Equal(nodeNames[1]))
+			framework.ExpectEqual(nodeNames[1], testPod.Spec.NodeName)
 		})
 	})
 })
 
 // createBalancedPodForNodes creates a pod per node that asks for enough resources to make all nodes have the same mem/cpu usage ratio.
-func createBalancedPodForNodes(ctx context.Context, f *framework.Framework, cs clientset.Interface, ns string, nodes []v1.Node, requestedResource *v1.ResourceRequirements, ratio float64) error {
-	cleanUp := func(ctx context.Context) {
+func createBalancedPodForNodes(f *framework.Framework, cs clientset.Interface, ns string, nodes []v1.Node, requestedResource *v1.ResourceRequirements, ratio float64) (func(), error) {
+	cleanUp := func() {
 		// Delete all remaining pods
-		err := cs.CoreV1().Pods(ns).DeleteCollection(ctx, metav1.DeleteOptions{}, metav1.ListOptions{
+		err := cs.CoreV1().Pods(ns).DeleteCollection(context.TODO(), metav1.DeleteOptions{}, metav1.ListOptions{
 			LabelSelector: labels.SelectorFromSet(labels.Set(balancePodLabel)).String(),
 		})
 		if err != nil {
 			framework.Logf("Failed to delete memory balanced pods: %v.", err)
 		} else {
-			err := wait.PollUntilContextTimeout(ctx, 2*time.Second, time.Minute, true, func(ctx context.Context) (bool, error) {
-				podList, err := cs.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{
+			err := wait.PollImmediate(2*time.Second, time.Minute, func() (bool, error) {
+				podList, err := cs.CoreV1().Pods(ns).List(context.TODO(), metav1.ListOptions{
 					LabelSelector: labels.SelectorFromSet(labels.Set(balancePodLabel)).String(),
 				})
 				if err != nil {
@@ -382,7 +387,6 @@ func createBalancedPodForNodes(ctx context.Context, f *framework.Framework, cs c
 			}
 		}
 	}
-	ginkgo.DeferCleanup(cleanUp)
 
 	// find the max, if the node has the max,use the one, if not,use the ratio parameter
 	var maxCPUFraction, maxMemFraction float64 = ratio, ratio
@@ -390,7 +394,7 @@ func createBalancedPodForNodes(ctx context.Context, f *framework.Framework, cs c
 	var memFractionMap = make(map[string]float64)
 
 	// For each node, stores its pods info
-	nodeNameToPodList := podListForEachNode(ctx, cs)
+	nodeNameToPodList := podListForEachNode(cs)
 
 	for _, node := range nodes {
 		cpuFraction, memFraction, _, _ := computeCPUMemFraction(node, requestedResource, nodeNameToPodList[node.Name])
@@ -469,21 +473,21 @@ func createBalancedPodForNodes(ctx context.Context, f *framework.Framework, cs c
 		}
 	}
 	if len(errs) > 0 {
-		return errors.NewAggregate(errs)
+		return cleanUp, errors.NewAggregate(errs)
 	}
 
-	nodeNameToPodList = podListForEachNode(ctx, cs)
+	nodeNameToPodList = podListForEachNode(cs)
 	for _, node := range nodes {
 		ginkgo.By("Compute Cpu, Mem Fraction after create balanced pods.")
 		computeCPUMemFraction(node, requestedResource, nodeNameToPodList[node.Name])
 	}
 
-	return nil
+	return cleanUp, nil
 }
 
-func podListForEachNode(ctx context.Context, cs clientset.Interface) map[string][]*v1.Pod {
+func podListForEachNode(cs clientset.Interface) map[string][]*v1.Pod {
 	nodeNameToPodList := make(map[string][]*v1.Pod)
-	allPods, err := cs.CoreV1().Pods(metav1.NamespaceAll).List(ctx, metav1.ListOptions{})
+	allPods, err := cs.CoreV1().Pods(metav1.NamespaceAll).List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
 		framework.Failf("Expect error of invalid, got : %v", err)
 	}
@@ -555,7 +559,7 @@ func getRandomTaint() v1.Taint {
 	}
 }
 
-func addTaintToNode(ctx context.Context, cs clientset.Interface, nodeName string, testTaint v1.Taint) {
-	e2enode.AddOrUpdateTaintOnNode(ctx, cs, nodeName, testTaint)
-	e2enode.ExpectNodeHasTaint(ctx, cs, nodeName, &testTaint)
+func addTaintToNode(cs clientset.Interface, nodeName string, testTaint v1.Taint) {
+	e2enode.AddOrUpdateTaintOnNode(cs, nodeName, testTaint)
+	e2enode.ExpectNodeHasTaint(cs, nodeName, &testTaint)
 }

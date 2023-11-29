@@ -44,24 +44,24 @@ const (
 
 var _ = common.SIGDescribe("[Feature:PerformanceDNS][Serial]", func() {
 	f := framework.NewDefaultFramework("performancedns")
-	f.NamespacePodSecurityLevel = admissionapi.LevelPrivileged
+	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 
-	ginkgo.BeforeEach(func(ctx context.Context) {
-		framework.ExpectNoError(e2enode.WaitForAllNodesSchedulable(ctx, f.ClientSet, f.Timeouts.NodeSchedulable))
-		e2enode.WaitForTotalHealthy(ctx, f.ClientSet, time.Minute)
+	ginkgo.BeforeEach(func() {
+		framework.ExpectNoError(e2enode.WaitForAllNodesSchedulable(f.ClientSet, framework.TestContext.NodeSchedulableTimeout))
+		e2enode.WaitForTotalHealthy(f.ClientSet, time.Minute)
 
-		err := framework.CheckTestingNSDeletedExcept(ctx, f.ClientSet, f.Namespace.Name)
+		err := framework.CheckTestingNSDeletedExcept(f.ClientSet, f.Namespace.Name)
 		framework.ExpectNoError(err)
 	})
 
 	// answers dns for service - creates the maximum number of services, and then check dns record for one
-	ginkgo.It("Should answer DNS query for maximum number of services per cluster", func(ctx context.Context) {
+	ginkgo.It("Should answer DNS query for maximum number of services per cluster", func() {
 		// get integer ceiling of maxServicesPerCluster / maxServicesPerNamespace
 		numNs := (maxServicesPerCluster + maxServicesPerNamespace - 1) / maxServicesPerNamespace
 
 		var namespaces []string
 		for i := 0; i < numNs; i++ {
-			ns, _ := f.CreateNamespace(ctx, f.BaseName, nil)
+			ns, _ := f.CreateNamespace(f.BaseName, nil)
 			namespaces = append(namespaces, ns.Name)
 			f.AddNamespacesToDelete(ns)
 		}
@@ -72,21 +72,21 @@ var _ = common.SIGDescribe("[Feature:PerformanceDNS][Serial]", func() {
 			framework.ExpectNoError(testutils.CreateServiceWithRetries(f.ClientSet, services[i].Namespace, services[i]))
 		}
 		framework.Logf("Creating %v test services", maxServicesPerCluster)
-		workqueue.ParallelizeUntil(ctx, parallelCreateServiceWorkers, len(services), createService)
+		workqueue.ParallelizeUntil(context.TODO(), parallelCreateServiceWorkers, len(services), createService)
 		dnsTest := dnsTestCommon{
 			f:  f,
 			c:  f.ClientSet,
 			ns: f.Namespace.Name,
 		}
-		dnsTest.createUtilPodLabel(ctx, "e2e-dns-scale-records")
-		ginkgo.DeferCleanup(dnsTest.deleteUtilPod)
+		dnsTest.createUtilPodLabel("e2e-dns-scale-records")
+		defer dnsTest.deleteUtilPod()
 		framework.Logf("Querying %v%% of service records", checkServicePercent*100)
 		for i := 0; i < len(services); i++ {
 			if i%(1/checkServicePercent) != 0 {
 				continue
 			}
 			s := services[i]
-			svc, err := f.ClientSet.CoreV1().Services(s.Namespace).Get(ctx, s.Name, metav1.GetOptions{})
+			svc, err := f.ClientSet.CoreV1().Services(s.Namespace).Get(context.TODO(), s.Name, metav1.GetOptions{})
 			framework.ExpectNoError(err)
 			qname := fmt.Sprintf("%v.%v.svc.%v", s.Name, s.Namespace, framework.TestContext.ClusterDNSDomain)
 			framework.Logf("Querying %v expecting %v", qname, svc.Spec.ClusterIP)

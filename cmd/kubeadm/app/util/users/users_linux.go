@@ -129,7 +129,7 @@ func (u *EntryMap) String() string {
 	return strings.Join(lines, "")
 }
 
-// AddUsersAndGroups is a public wrapper around addUsersAndGroupsImpl with default system file paths.
+// Is a public wrapper around addUsersAndGroupsImpl with default system file paths.
 func AddUsersAndGroups() (*UsersAndGroups, error) {
 	return addUsersAndGroupsImpl(fileEtcLoginDefs, fileEtcPasswd, fileEtcGroup)
 }

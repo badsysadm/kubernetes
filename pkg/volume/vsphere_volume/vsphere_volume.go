@@ -26,6 +26,7 @@ import (
 	"runtime"
 	"strings"
 
+	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	"k8s.io/klog/v2"
 	"k8s.io/mount-utils"
 	utilstrings "k8s.io/utils/strings"
@@ -36,6 +37,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	volumehelpers "k8s.io/cloud-provider/volume/helpers"
 
+	"k8s.io/kubernetes/pkg/features"
 	"k8s.io/kubernetes/pkg/volume"
 	"k8s.io/kubernetes/pkg/volume/util"
 )
@@ -73,7 +75,7 @@ func (plugin *vsphereVolumePlugin) GetPluginName() string {
 }
 
 func (plugin *vsphereVolumePlugin) IsMigratedToCSI() bool {
-	return true
+	return utilfeature.DefaultFeatureGate.Enabled(features.CSIMigrationvSphere)
 }
 
 func (plugin *vsphereVolumePlugin) GetVolumeName(spec *volume.Spec) (string, error) {
@@ -322,7 +324,7 @@ type vsphereVolumeDeleter struct {
 
 var _ volume.Deleter = &vsphereVolumeDeleter{}
 
-func (plugin *vsphereVolumePlugin) NewDeleter(logger klog.Logger, spec *volume.Spec) (volume.Deleter, error) {
+func (plugin *vsphereVolumePlugin) NewDeleter(spec *volume.Spec) (volume.Deleter, error) {
 	return plugin.newDeleterInternal(spec, &VsphereDiskUtil{})
 }
 
@@ -351,7 +353,7 @@ type vsphereVolumeProvisioner struct {
 
 var _ volume.Provisioner = &vsphereVolumeProvisioner{}
 
-func (plugin *vsphereVolumePlugin) NewProvisioner(logger klog.Logger, options volume.VolumeOptions) (volume.Provisioner, error) {
+func (plugin *vsphereVolumePlugin) NewProvisioner(options volume.VolumeOptions) (volume.Provisioner, error) {
 	return plugin.newProvisionerInternal(options, &VsphereDiskUtil{})
 }
 

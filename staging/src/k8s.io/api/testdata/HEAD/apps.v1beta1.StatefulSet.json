@@ -453,7 +453,12 @@
                     },
                     "requests": {
                       "requestsKey": "0"
-                    }
+                    },
+                    "claims": [
+                      {
+                        "name": "nameValue"
+                      }
+                    ]
                   },
                   "volumeName": "volumeNameValue",
                   "storageClassName": "storageClassNameValue",
@@ -547,13 +552,6 @@
                 }
               ]
             },
-            "resizePolicy": [
-              {
-                "resourceName": "resourceNameValue",
-                "restartPolicy": "restartPolicyValue"
-              }
-            ],
-            "restartPolicy": "restartPolicyValue",
             "volumeMounts": [
               {
                 "name": "nameValue",
@@ -691,9 +689,6 @@
                 "tcpSocket": {
                   "port": "portValue",
                   "host": "hostValue"
-                },
-                "sleep": {
-                  "seconds": 1
                 }
               },
               "preStop": {
@@ -717,9 +712,6 @@
                 "tcpSocket": {
                   "port": "portValue",
                   "host": "hostValue"
-                },
-                "sleep": {
-                  "seconds": 1
                 }
               }
             },
@@ -837,13 +829,6 @@
                 }
               ]
             },
-            "resizePolicy": [
-              {
-                "resourceName": "resourceNameValue",
-                "restartPolicy": "restartPolicyValue"
-              }
-            ],
-            "restartPolicy": "restartPolicyValue",
             "volumeMounts": [
               {
                 "name": "nameValue",
@@ -981,9 +966,6 @@
                 "tcpSocket": {
                   "port": "portValue",
                   "host": "hostValue"
-                },
-                "sleep": {
-                  "seconds": 1
                 }
               },
               "preStop": {
@@ -1007,9 +989,6 @@
                 "tcpSocket": {
                   "port": "portValue",
                   "host": "hostValue"
-                },
-                "sleep": {
-                  "seconds": 1
                 }
               }
             },
@@ -1127,13 +1106,6 @@
                 }
               ]
             },
-            "resizePolicy": [
-              {
-                "resourceName": "resourceNameValue",
-                "restartPolicy": "restartPolicyValue"
-              }
-            ],
-            "restartPolicy": "restartPolicyValue",
             "volumeMounts": [
               {
                 "name": "nameValue",
@@ -1271,9 +1243,6 @@
                 "tcpSocket": {
                   "port": "portValue",
                   "host": "hostValue"
-                },
-                "sleep": {
-                  "seconds": 1
                 }
               },
               "preStop": {
@@ -1297,9 +1266,6 @@
                 "tcpSocket": {
                   "port": "portValue",
                   "host": "hostValue"
-                },
-                "sleep": {
-                  "seconds": 1
                 }
               }
             },
@@ -1485,13 +1451,7 @@
                       ]
                     }
                   ]
-                },
-                "matchLabelKeys": [
-                  "matchLabelKeysValue"
-                ],
-                "mismatchLabelKeys": [
-                  "mismatchLabelKeysValue"
-                ]
+                }
               }
             ],
             "preferredDuringSchedulingIgnoredDuringExecution": [
@@ -1529,13 +1489,7 @@
                         ]
                       }
                     ]
-                  },
-                  "matchLabelKeys": [
-                    "matchLabelKeysValue"
-                  ],
-                  "mismatchLabelKeys": [
-                    "mismatchLabelKeysValue"
-                  ]
+                  }
                 }
               }
             ]
@@ -1574,13 +1528,7 @@
                       ]
                     }
                   ]
-                },
-                "matchLabelKeys": [
-                  "matchLabelKeysValue"
-                ],
-                "mismatchLabelKeys": [
-                  "mismatchLabelKeysValue"
-                ]
+                }
               }
             ],
             "preferredDuringSchedulingIgnoredDuringExecution": [
@@ -1618,13 +1566,7 @@
                         ]
                       }
                     ]
-                  },
-                  "matchLabelKeys": [
-                    "matchLabelKeysValue"
-                  ],
-                  "mismatchLabelKeys": [
-                    "mismatchLabelKeysValue"
-                  ]
+                  }
                 }
               }
             ]
@@ -1791,7 +1733,12 @@
             },
             "requests": {
               "requestsKey": "0"
-            }
+            },
+            "claims": [
+              {
+                "name": "nameValue"
+              }
+            ]
           },
           "volumeName": "volumeNameValue",
           "storageClassName": "storageClassNameValue",
@@ -1829,9 +1776,7 @@
           "allocatedResources": {
             "allocatedResourcesKey": "0"
           },
-          "allocatedResourceStatuses": {
-            "allocatedResourceStatusesKey": "allocatedResourceStatusesValue"
-          }
+          "resizeStatus": "resizeStatusValue"
         }
       }
     ],

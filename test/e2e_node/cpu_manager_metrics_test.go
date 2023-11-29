@@ -17,7 +17,6 @@ limitations under the License.
 package e2enode
 
 import (
-	"context"
 	"fmt"
 	"time"
 
@@ -31,32 +30,32 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	kubeletconfig "k8s.io/kubernetes/pkg/kubelet/apis/config"
 	"k8s.io/kubernetes/pkg/kubelet/cm/cpumanager"
+	"k8s.io/kubernetes/pkg/kubelet/cm/cpuset"
 	"k8s.io/kubernetes/test/e2e/framework"
 	e2emetrics "k8s.io/kubernetes/test/e2e/framework/metrics"
 	e2epod "k8s.io/kubernetes/test/e2e/framework/pod"
 	e2eskipper "k8s.io/kubernetes/test/e2e/framework/skipper"
 	admissionapi "k8s.io/pod-security-admission/api"
-	"k8s.io/utils/cpuset"
 )
 
 var _ = SIGDescribe("CPU Manager Metrics [Serial][Feature:CPUManager]", func() {
 	f := framework.NewDefaultFramework("cpumanager-metrics")
-	f.NamespacePodSecurityLevel = admissionapi.LevelPrivileged
+	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 
 	ginkgo.Context("when querying /metrics", func() {
 		var oldCfg *kubeletconfig.KubeletConfiguration
 		var testPod *v1.Pod
 		var smtLevel int
 
-		ginkgo.BeforeEach(func(ctx context.Context) {
+		ginkgo.BeforeEach(func() {
 			var err error
 			if oldCfg == nil {
-				oldCfg, err = getCurrentKubeletConfig(ctx)
+				oldCfg, err = getCurrentKubeletConfig()
 				framework.ExpectNoError(err)
 			}
 
 			fullCPUsOnlyOpt := fmt.Sprintf("option=%s", cpumanager.FullPCPUsOnlyOption)
-			_, cpuAlloc, _ := getLocalNodeCPUDetails(ctx, f)
+			_, cpuAlloc, _ := getLocalNodeCPUDetails(f)
 			smtLevel = getSMTLevel()
 
 			// strict SMT alignment is trivially verified and granted on non-SMT systems
@@ -79,22 +78,22 @@ var _ = SIGDescribe("CPU Manager Metrics [Serial][Feature:CPUManager]", func() {
 			newCfg := configureCPUManagerInKubelet(oldCfg,
 				&cpuManagerKubeletArguments{
 					policyName:              string(cpumanager.PolicyStatic),
-					reservedSystemCPUs:      cpuset.New(0),
+					reservedSystemCPUs:      cpuset.NewCPUSet(0),
 					enableCPUManagerOptions: true,
 					options:                 cpuPolicyOptions,
 				},
 			)
-			updateKubeletConfig(ctx, f, newCfg, true)
+			updateKubeletConfig(f, newCfg, true)
 		})
 
-		ginkgo.AfterEach(func(ctx context.Context) {
+		ginkgo.AfterEach(func() {
 			if testPod != nil {
-				deletePodSyncByName(ctx, f, testPod.Name)
+				deletePodSyncByName(f, testPod.Name)
 			}
-			updateKubeletConfig(ctx, f, oldCfg, true)
+			updateKubeletConfig(f, oldCfg, true)
 		})
 
-		ginkgo.It("should report zero pinning counters after a fresh restart", func(ctx context.Context) {
+		ginkgo.It("should report zero pinning counters after a fresh restart", func() {
 			// we updated the kubelet config in BeforeEach, so we can assume we start fresh.
 			// being [Serial], we can also assume noone else but us is running pods.
 			ginkgo.By("Checking the cpumanager metrics right after the kubelet restart, with no pods running")
@@ -109,14 +108,14 @@ var _ = SIGDescribe("CPU Manager Metrics [Serial][Feature:CPUManager]", func() {
 			})
 
 			ginkgo.By("Giving the Kubelet time to start up and produce metrics")
-			gomega.Eventually(ctx, getKubeletMetrics, 1*time.Minute, 15*time.Second).Should(matchResourceMetrics)
+			gomega.Eventually(getCPUManagerMetrics, 1*time.Minute, 15*time.Second).Should(matchResourceMetrics)
 			ginkgo.By("Ensuring the metrics match the expectations a few more times")
-			gomega.Consistently(ctx, getKubeletMetrics, 1*time.Minute, 15*time.Second).Should(matchResourceMetrics)
+			gomega.Consistently(getCPUManagerMetrics, 1*time.Minute, 15*time.Second).Should(matchResourceMetrics)
 		})
 
-		ginkgo.It("should report pinning failures when the cpumanager allocation is known to fail", func(ctx context.Context) {
+		ginkgo.It("should report pinning failures when the cpumanager allocation is known to fail", func() {
 			ginkgo.By("Creating the test pod which will be rejected for SMTAlignmentError")
-			testPod = e2epod.NewPodClient(f).Create(ctx, makeGuaranteedCPUExclusiveSleeperPod("smt-align-err", 1))
+			testPod = e2epod.NewPodClient(f).Create(makeGuaranteedCPUExclusiveSleeperPod("smt-align-err", 1))
 
 			// we updated the kubelet config in BeforeEach, so we can assume we start fresh.
 			// being [Serial], we can also assume noone else but us is running pods.
@@ -132,14 +131,14 @@ var _ = SIGDescribe("CPU Manager Metrics [Serial][Feature:CPUManager]", func() {
 			})
 
 			ginkgo.By("Giving the Kubelet time to start up and produce metrics")
-			gomega.Eventually(ctx, getKubeletMetrics, 1*time.Minute, 15*time.Second).Should(matchResourceMetrics)
+			gomega.Eventually(getCPUManagerMetrics, 1*time.Minute, 15*time.Second).Should(matchResourceMetrics)
 			ginkgo.By("Ensuring the metrics match the expectations a few more times")
-			gomega.Consistently(ctx, getKubeletMetrics, 1*time.Minute, 15*time.Second).Should(matchResourceMetrics)
+			gomega.Consistently(getCPUManagerMetrics, 1*time.Minute, 15*time.Second).Should(matchResourceMetrics)
 		})
 
-		ginkgo.It("should not report any pinning failures when the cpumanager allocation is expected to succeed", func(ctx context.Context) {
+		ginkgo.It("should not report any pinning failures when the cpumanager allocation is expected to succeed", func() {
 			ginkgo.By("Creating the test pod")
-			testPod = e2epod.NewPodClient(f).Create(ctx, makeGuaranteedCPUExclusiveSleeperPod("smt-align-ok", smtLevel))
+			testPod = e2epod.NewPodClient(f).Create(makeGuaranteedCPUExclusiveSleeperPod("smt-align-ok", smtLevel))
 
 			// we updated the kubelet config in BeforeEach, so we can assume we start fresh.
 			// being [Serial], we can also assume noone else but us is running pods.
@@ -155,16 +154,17 @@ var _ = SIGDescribe("CPU Manager Metrics [Serial][Feature:CPUManager]", func() {
 			})
 
 			ginkgo.By("Giving the Kubelet time to start up and produce metrics")
-			gomega.Eventually(ctx, getKubeletMetrics, 1*time.Minute, 15*time.Second).Should(matchResourceMetrics)
+			gomega.Eventually(getCPUManagerMetrics, 1*time.Minute, 15*time.Second).Should(matchResourceMetrics)
 			ginkgo.By("Ensuring the metrics match the expectations a few more times")
-			gomega.Consistently(ctx, getKubeletMetrics, 1*time.Minute, 15*time.Second).Should(matchResourceMetrics)
+			gomega.Consistently(getCPUManagerMetrics, 1*time.Minute, 15*time.Second).Should(matchResourceMetrics)
 		})
 	})
 })
 
-func getKubeletMetrics(ctx context.Context) (e2emetrics.KubeletMetrics, error) {
-	ginkgo.By("getting Kubelet metrics from the metrics API")
-	return e2emetrics.GrabKubeletMetricsWithoutProxy(ctx, nodeNameOrIP()+":10255", "/metrics")
+func getCPUManagerMetrics() (e2emetrics.KubeletMetrics, error) {
+	// we are running out of good names, so we need to be unnecessarily specific to avoid clashes
+	ginkgo.By("getting CPU Manager metrics from the metrics API")
+	return e2emetrics.GrabKubeletMetricsWithoutProxy(framework.TestContext.NodeName+":10255", "/metrics")
 }
 
 func makeGuaranteedCPUExclusiveSleeperPod(name string, cpus int) *v1.Pod {
@@ -201,6 +201,5 @@ func timelessSample(value interface{}) types.GomegaMatcher {
 		"Metric":    gstruct.Ignore(),
 		"Value":     gomega.BeNumerically("==", value),
 		"Timestamp": gstruct.Ignore(),
-		"Histogram": gstruct.Ignore(),
 	}))
 }

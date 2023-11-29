@@ -55,13 +55,11 @@ func Funcs(codecs runtimeserializer.CodecFactory) []interface{} {
 			obj.EventRecordQPS = 5
 			obj.EnableControllerAttachDetach = true
 			obj.EnableDebuggingHandlers = true
-			obj.EnableSystemLogQuery = false
 			obj.FileCheckFrequency = metav1.Duration{Duration: 20 * time.Second}
 			obj.HealthzBindAddress = "127.0.0.1"
 			obj.HealthzPort = 10248
 			obj.HTTPCheckFrequency = metav1.Duration{Duration: 20 * time.Second}
 			obj.ImageMinimumGCAge = metav1.Duration{Duration: 2 * time.Minute}
-			obj.ImageMaximumGCAge = metav1.Duration{}
 			obj.ImageGCHighThresholdPercent = 85
 			obj.ImageGCLowThresholdPercent = 80
 			obj.KernelMemcgNotification = false
@@ -92,8 +90,8 @@ func Funcs(codecs runtimeserializer.CodecFactory) []interface{} {
 			obj.StreamingConnectionIdleTimeout = metav1.Duration{Duration: 4 * time.Hour}
 			obj.SyncFrequency = metav1.Duration{Duration: 1 * time.Minute}
 			obj.ContentType = "application/vnd.kubernetes.protobuf"
-			obj.KubeAPIQPS = 50
-			obj.KubeAPIBurst = 100
+			obj.KubeAPIQPS = 5
+			obj.KubeAPIBurst = 10
 			obj.HairpinMode = v1beta1.PromiscuousBridge
 			obj.EvictionHard = eviction.DefaultEvictionHard
 			obj.EvictionPressureTransitionPeriod = metav1.Duration{Duration: 5 * time.Minute}
@@ -109,13 +107,11 @@ func Funcs(codecs runtimeserializer.CodecFactory) []interface{} {
 			obj.ConfigMapAndSecretChangeDetectionStrategy = "Watch"
 			obj.AllowedUnsafeSysctls = []string{}
 			obj.VolumePluginDir = kubeletconfigv1beta1.DefaultVolumePluginDir
-			obj.ContainerRuntimeEndpoint = "unix:///run/containerd/containerd.sock"
-
 			if obj.Logging.Format == "" {
 				obj.Logging.Format = "text"
 			}
 			obj.EnableSystemLogHandler = true
-			obj.MemoryThrottlingFactor = utilpointer.Float64(rand.Float64())
+			obj.MemoryThrottlingFactor = utilpointer.Float64Ptr(rand.Float64())
 			obj.LocalStorageCapacityIsolation = true
 		},
 	}

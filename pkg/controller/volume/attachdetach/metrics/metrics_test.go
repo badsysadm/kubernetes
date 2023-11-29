@@ -27,7 +27,6 @@ import (
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes/fake"
 	csitrans "k8s.io/csi-translation-lib"
-	"k8s.io/klog/v2/ktesting"
 	"k8s.io/kubernetes/pkg/controller"
 	"k8s.io/kubernetes/pkg/controller/volume/attachdetach/cache"
 	controllervolumetesting "k8s.io/kubernetes/pkg/controller/volume/attachdetach/testing"
@@ -78,7 +77,7 @@ func TestVolumesInUseMetricCollection(t *testing.T) {
 		},
 		Spec: v1.PersistentVolumeClaimSpec{
 			AccessModes: []v1.PersistentVolumeAccessMode{v1.ReadOnlyMany, v1.ReadWriteOnce},
-			Resources: v1.VolumeResourceRequirements{
+			Resources: v1.ResourceRequirements{
 				Requests: v1.ResourceList{
 					v1.ResourceName(v1.ResourceStorage): resource.MustParse("2G"),
 				},
@@ -122,8 +121,7 @@ func TestVolumesInUseMetricCollection(t *testing.T) {
 		fakeVolumePluginMgr,
 		csimigration.NewPluginManager(csiTranslator, utilfeature.DefaultFeatureGate),
 		csiTranslator)
-	logger, _ := ktesting.NewTestContext(t)
-	nodeUseMap := metricCollector.getVolumeInUseCount(logger)
+	nodeUseMap := metricCollector.getVolumeInUseCount()
 	if len(nodeUseMap) < 1 {
 		t.Errorf("Expected one volume in use got %d", len(nodeUseMap))
 	}
@@ -152,8 +150,7 @@ func TestTotalVolumesMetricCollection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}
-	logger, _ := ktesting.NewTestContext(t)
-	asw.AddVolumeNode(logger, volumeName, volumeSpec, nodeName, "", true)
+	asw.AddVolumeNode(volumeName, volumeSpec, nodeName, "", true)
 
 	csiTranslator := csitrans.New()
 	metricCollector := newAttachDetachStateCollector(

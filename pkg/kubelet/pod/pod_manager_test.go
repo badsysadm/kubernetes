@@ -20,17 +20,21 @@ import (
 	"reflect"
 	"testing"
 
-	v1 "k8s.io/api/core/v1"
+	"k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/kubernetes/pkg/kubelet/configmap"
 	podtest "k8s.io/kubernetes/pkg/kubelet/pod/testing"
+	"k8s.io/kubernetes/pkg/kubelet/secret"
 	kubetypes "k8s.io/kubernetes/pkg/kubelet/types"
 )
 
 // Stub out mirror client for testing purpose.
 func newTestManager() (*basicManager, *podtest.FakeMirrorClient) {
 	fakeMirrorClient := podtest.NewFakeMirrorClient()
-	manager := NewBasicPodManager().(*basicManager)
+	secretManager := secret.NewFakeManager()
+	configMapManager := configmap.NewFakeManager()
+	manager := NewBasicPodManager(fakeMirrorClient, secretManager, configMapManager).(*basicManager)
 	return manager, fakeMirrorClient
 }
 
@@ -111,7 +115,7 @@ func TestGetSetPods(t *testing.T) {
 
 }
 
-func TestRemovePods(t *testing.T) {
+func TestDeletePods(t *testing.T) {
 	mirrorPod := &v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			UID:       types.UID("mirror-pod-uid"),
@@ -147,14 +151,14 @@ func TestRemovePods(t *testing.T) {
 	podManager, _ := newTestManager()
 	podManager.SetPods(updates)
 
-	podManager.RemovePod(staticPod)
+	podManager.DeletePod(staticPod)
 
 	actualPods := podManager.GetPods()
 	if len(actualPods) == len(expectedPods) {
-		t.Fatalf("Run RemovePod() error, expected %d pods, got %d pods; ", len(expectedPods)-1, len(actualPods))
+		t.Fatalf("Run DeletePod() error, expected %d pods, got %d pods; ", len(expectedPods)-1, len(actualPods))
 	}
 
-	_, _, orphanedMirrorPodNames := podManager.GetPodsAndMirrorPods()
+	orphanedMirrorPodNames := podManager.GetOrphanedMirrorPodNames()
 	expectedOrphanedMirrorPodNameNum := 1
 	if len(orphanedMirrorPodNames) != expectedOrphanedMirrorPodNameNum {
 		t.Fatalf("Run getOrphanedMirrorPodNames() error, expected %d orphaned mirror pods, got %d orphaned mirror pods; ", expectedOrphanedMirrorPodNameNum, len(orphanedMirrorPodNames))

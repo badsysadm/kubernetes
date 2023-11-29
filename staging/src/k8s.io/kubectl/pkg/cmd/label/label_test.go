@@ -19,8 +19,9 @@ package label
 import (
 	"bytes"
 	"fmt"
-	"io"
+	"io/ioutil"
 	"net/http"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -30,7 +31,8 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/json"
-	"k8s.io/cli-runtime/pkg/genericiooptions"
+	sptest "k8s.io/apimachinery/pkg/util/strategicpatch/testing"
+	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"k8s.io/cli-runtime/pkg/resource"
 	"k8s.io/client-go/rest/fake"
 	cmdtesting "k8s.io/kubectl/pkg/cmd/testing"
@@ -346,7 +348,7 @@ func TestLabelErrors(t *testing.T) {
 
 			tf.ClientConfigVal = cmdtesting.DefaultClientConfig()
 
-			ioStreams, _, _, _ := genericiooptions.NewTestIOStreams()
+			ioStreams, _, _, _ := genericclioptions.NewTestIOStreams()
 			buf := bytes.NewBuffer([]byte{})
 			cmd := NewCmdLabel(tf, ioStreams)
 			cmd.SetOut(buf)
@@ -365,7 +367,7 @@ func TestLabelErrors(t *testing.T) {
 				return
 			}
 			if buf.Len() > 0 {
-				t.Errorf("buffer should be empty: %s", buf.String())
+				t.Errorf("buffer should be empty: %s", string(buf.Bytes()))
 			}
 		})
 	}
@@ -406,7 +408,7 @@ func TestLabelForResourceFromFile(t *testing.T) {
 	}
 	tf.ClientConfigVal = cmdtesting.DefaultClientConfig()
 
-	ioStreams, _, buf, _ := genericiooptions.NewTestIOStreams()
+	ioStreams, _, buf, _ := genericclioptions.NewTestIOStreams()
 	cmd := NewCmdLabel(tf, ioStreams)
 	opts := NewLabelOptions(ioStreams)
 	opts.Filenames = []string{"../../../testdata/controller.yaml"}
@@ -438,7 +440,7 @@ func TestLabelLocal(t *testing.T) {
 	}
 	tf.ClientConfigVal = cmdtesting.DefaultClientConfig()
 
-	ioStreams, _, buf, _ := genericiooptions.NewTestIOStreams()
+	ioStreams, _, buf, _ := genericclioptions.NewTestIOStreams()
 	cmd := NewCmdLabel(tf, ioStreams)
 	opts := NewLabelOptions(ioStreams)
 	opts.Filenames = []string{"../../../testdata/controller.yaml"}
@@ -495,7 +497,7 @@ func TestLabelMultipleObjects(t *testing.T) {
 	}
 	tf.ClientConfigVal = cmdtesting.DefaultClientConfig()
 
-	ioStreams, _, buf, _ := genericiooptions.NewTestIOStreams()
+	ioStreams, _, buf, _ := genericclioptions.NewTestIOStreams()
 	opts := NewLabelOptions(ioStreams)
 	opts.all = true
 	cmd := NewCmdLabel(tf, ioStreams)
@@ -529,7 +531,7 @@ func TestLabelResourceVersion(t *testing.T) {
 					return &http.Response{
 						StatusCode: http.StatusOK,
 						Header:     cmdtesting.DefaultHeader(),
-						Body: io.NopCloser(bytes.NewBufferString(
+						Body: ioutil.NopCloser(bytes.NewBufferString(
 							`{"kind":"Pod","apiVersion":"v1","metadata":{"name":"foo","namespace":"test","resourceVersion":"10"}}`,
 						))}, nil
 				default:
@@ -539,7 +541,7 @@ func TestLabelResourceVersion(t *testing.T) {
 			case "PATCH":
 				switch req.URL.Path {
 				case "/namespaces/test/pods/foo":
-					body, err := io.ReadAll(req.Body)
+					body, err := ioutil.ReadAll(req.Body)
 					if err != nil {
 						t.Fatal(err)
 					}
@@ -549,7 +551,7 @@ func TestLabelResourceVersion(t *testing.T) {
 					return &http.Response{
 						StatusCode: http.StatusOK,
 						Header:     cmdtesting.DefaultHeader(),
-						Body: io.NopCloser(bytes.NewBufferString(
+						Body: ioutil.NopCloser(bytes.NewBufferString(
 							`{"kind":"Pod","apiVersion":"v1","metadata":{"name":"foo","namespace":"test","resourceVersion":"11"}}`,
 						))}, nil
 				default:
@@ -564,7 +566,7 @@ func TestLabelResourceVersion(t *testing.T) {
 	}
 	tf.ClientConfigVal = cmdtesting.DefaultClientConfig()
 
-	iostreams, _, bufOut, _ := genericiooptions.NewTestIOStreams()
+	iostreams, _, bufOut, _ := genericclioptions.NewTestIOStreams()
 	cmd := NewCmdLabel(tf, iostreams)
 	cmd.SetOut(bufOut)
 	cmd.SetErr(bufOut)
@@ -586,6 +588,9 @@ func TestRunLabelMsg(t *testing.T) {
 	tf := cmdtesting.NewTestFactory().WithNamespace("test")
 	defer tf.Cleanup()
 
+	fakeSchema := sptest.Fake{Path: filepath.Join("..", "..", "..", "testdata", "openapi", "swagger.json")}
+	tf.FakeOpenAPIGetter = &fakeSchema
+
 	tf.UnstructuredClient = &fake.RESTClient{
 		GroupVersion:         schema.GroupVersion{Group: "testgroup", Version: "v1"},
 		NegotiatedSerializer: resource.UnstructuredPlusDefaultContentConfig().NegotiatedSerializer,
@@ -597,7 +602,7 @@ func TestRunLabelMsg(t *testing.T) {
 					return &http.Response{
 						StatusCode: http.StatusOK,
 						Header:     cmdtesting.DefaultHeader(),
-						Body: io.NopCloser(bytes.NewBufferString(
+						Body: ioutil.NopCloser(bytes.NewBufferString(
 							`{"kind":"Pod","apiVersion":"v1","metadata":{"name":"foo","namespace":"test","labels":{"existing":"abc"}}}`,
 						))}, nil
 				default:
@@ -610,7 +615,7 @@ func TestRunLabelMsg(t *testing.T) {
 					return &http.Response{
 						StatusCode: http.StatusOK,
 						Header:     cmdtesting.DefaultHeader(),
-						Body: io.NopCloser(bytes.NewBufferString(
+						Body: ioutil.NopCloser(bytes.NewBufferString(
 							`{"kind":"Pod","apiVersion":"v1","metadata":{"name":"foo","namespace":"test","labels":{"existing":"abc"}}}`,
 						))}, nil
 				default:
@@ -689,7 +694,7 @@ pod/foo not labeled
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			iostreams, _, bufOut, _ := genericiooptions.NewTestIOStreams()
+			iostreams, _, bufOut, _ := genericclioptions.NewTestIOStreams()
 			cmd := NewCmdLabel(tf, iostreams)
 			cmd.SetOut(bufOut)
 			cmd.SetErr(bufOut)

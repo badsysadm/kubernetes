@@ -36,6 +36,7 @@ const (
 	GCEPDLimits                     = "GCEPDLimits"
 	PodTopologySpread               = "PodTopologySpread"
 	SchedulingGates                 = "SchedulingGates"
+	SelectorSpread                  = "SelectorSpread"
 	TaintToleration                 = "TaintToleration"
 	VolumeBinding                   = "VolumeBinding"
 	VolumeRestrictions              = "VolumeRestrictions"

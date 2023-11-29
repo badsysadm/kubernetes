@@ -28,7 +28,7 @@ import (
 
 type NetworkingV1alpha1Interface interface {
 	RESTClient() rest.Interface
-	IPAddressesGetter
+	ClusterCIDRsGetter
 }
 
 // NetworkingV1alpha1Client is used to interact with features provided by the networking.k8s.io group.
@@ -36,8 +36,8 @@ type NetworkingV1alpha1Client struct {
 	restClient rest.Interface
 }
 
-func (c *NetworkingV1alpha1Client) IPAddresses() IPAddressInterface {
-	return newIPAddresses(c)
+func (c *NetworkingV1alpha1Client) ClusterCIDRs() ClusterCIDRInterface {
+	return newClusterCIDRs(c)
 }
 
 // NewForConfig creates a new NetworkingV1alpha1Client for the given config.

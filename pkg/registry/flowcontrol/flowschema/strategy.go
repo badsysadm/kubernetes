@@ -47,6 +47,9 @@ func (flowSchemaStrategy) NamespaceScoped() bool {
 // and should not be modified by the user.
 func (flowSchemaStrategy) GetResetFields() map[fieldpath.APIVersion]*fieldpath.Set {
 	fields := map[fieldpath.APIVersion]*fieldpath.Set{
+		"flowcontrol.apiserver.k8s.io/v1alpha1": fieldpath.NewSet(
+			fieldpath.MakePathOrDie("status"),
+		),
 		"flowcontrol.apiserver.k8s.io/v1beta1": fieldpath.NewSet(
 			fieldpath.MakePathOrDie("status"),
 		),
@@ -54,9 +57,6 @@ func (flowSchemaStrategy) GetResetFields() map[fieldpath.APIVersion]*fieldpath.S
 			fieldpath.MakePathOrDie("status"),
 		),
 		"flowcontrol.apiserver.k8s.io/v1beta3": fieldpath.NewSet(
-			fieldpath.MakePathOrDie("status"),
-		),
-		"flowcontrol.apiserver.k8s.io/v1": fieldpath.NewSet(
 			fieldpath.MakePathOrDie("status"),
 		),
 	}
@@ -127,6 +127,10 @@ var StatusStrategy = flowSchemaStatusStrategy{Strategy}
 // and should not be modified by the user.
 func (flowSchemaStatusStrategy) GetResetFields() map[fieldpath.APIVersion]*fieldpath.Set {
 	fields := map[fieldpath.APIVersion]*fieldpath.Set{
+		"flowcontrol.apiserver.k8s.io/v1alpha1": fieldpath.NewSet(
+			fieldpath.MakePathOrDie("metadata"),
+			fieldpath.MakePathOrDie("spec"),
+		),
 		"flowcontrol.apiserver.k8s.io/v1beta1": fieldpath.NewSet(
 			fieldpath.MakePathOrDie("metadata"),
 			fieldpath.MakePathOrDie("spec"),
@@ -136,10 +140,6 @@ func (flowSchemaStatusStrategy) GetResetFields() map[fieldpath.APIVersion]*field
 			fieldpath.MakePathOrDie("spec"),
 		),
 		"flowcontrol.apiserver.k8s.io/v1beta3": fieldpath.NewSet(
-			fieldpath.MakePathOrDie("metadata"),
-			fieldpath.MakePathOrDie("spec"),
-		),
-		"flowcontrol.apiserver.k8s.io/v1": fieldpath.NewSet(
 			fieldpath.MakePathOrDie("metadata"),
 			fieldpath.MakePathOrDie("spec"),
 		),

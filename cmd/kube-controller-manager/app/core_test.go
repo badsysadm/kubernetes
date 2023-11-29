@@ -28,6 +28,7 @@ import (
 	clientset "k8s.io/client-go/kubernetes"
 	fakeclientset "k8s.io/client-go/kubernetes/fake"
 	restclient "k8s.io/client-go/rest"
+	"k8s.io/controller-manager/controller"
 )
 
 // TestClientBuilder inherits ClientBuilder and can accept a given fake clientset.
@@ -104,13 +105,15 @@ func possibleDiscoveryResource() []*metav1.APIResourceList {
 	}
 }
 
+type controllerInitFunc func(context.Context, ControllerContext) (controller.Interface, bool, error)
+
 func TestController_DiscoveryError(t *testing.T) {
-	controllerDescriptorMap := map[string]*ControllerDescriptor{
-		"ResourceQuotaController":          newResourceQuotaControllerDescriptor(),
-		"GarbageCollectorController":       newGarbageCollectorControllerDescriptor(),
-		"EndpointSliceController":          newEndpointSliceControllerDescriptor(),
-		"EndpointSliceMirroringController": newEndpointSliceMirroringControllerDescriptor(),
-		"PodDisruptionBudgetController":    newDisruptionControllerDescriptor(),
+	controllerInitFuncMap := map[string]controllerInitFunc{
+		"ResourceQuotaController":          startResourceQuotaController,
+		"GarbageCollectorController":       startGarbageCollectorController,
+		"EndpointSliceController":          startEndpointSliceController,
+		"EndpointSliceMirroringController": startEndpointSliceMirroringController,
+		"PodDisruptionBudgetController":    startDisruptionController,
 	}
 
 	tcs := map[string]struct {
@@ -140,10 +143,10 @@ func TestController_DiscoveryError(t *testing.T) {
 			ObjectOrMetadataInformerFactory: testInformerFactory,
 			InformersStarted:                make(chan struct{}),
 		}
-		for controllerName, controllerDesc := range controllerDescriptorMap {
-			_, _, err := controllerDesc.GetInitFunc()(context.TODO(), ctx, controllerName)
+		for funcName, controllerInit := range controllerInitFuncMap {
+			_, _, err := controllerInit(context.TODO(), ctx)
 			if test.expectedErr != (err != nil) {
-				t.Errorf("%v test failed for use case: %v", controllerName, name)
+				t.Errorf("%v test failed for use case: %v", funcName, name)
 			}
 		}
 		_, _, err := startModifiedNamespaceController(

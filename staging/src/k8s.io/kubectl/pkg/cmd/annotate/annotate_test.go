@@ -18,7 +18,7 @@ package annotate
 
 import (
 	"bytes"
-	"io"
+	"io/ioutil"
 	"net/http"
 	"reflect"
 	"strings"
@@ -28,7 +28,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/cli-runtime/pkg/genericiooptions"
+	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"k8s.io/cli-runtime/pkg/resource"
 	"k8s.io/client-go/rest/fake"
 	cmdtesting "k8s.io/kubectl/pkg/cmd/testing"
@@ -440,13 +440,16 @@ func TestAnnotateErrors(t *testing.T) {
 
 			tf.ClientConfigVal = cmdtesting.DefaultClientConfig()
 
-			iostreams, _, bufOut, bufErr := genericiooptions.NewTestIOStreams()
+			iostreams, _, bufOut, bufErr := genericclioptions.NewTestIOStreams()
 			cmd := NewCmdAnnotate("kubectl", tf, iostreams)
 			cmd.SetOut(bufOut)
 			cmd.SetErr(bufOut)
 
-			flags := NewAnnotateFlags(iostreams)
-			_, err := flags.ToOptions(tf, cmd, testCase.args)
+			options := NewAnnotateOptions(iostreams)
+			err := options.Complete(tf, cmd, testCase.args)
+			if err == nil {
+				err = options.Validate()
+			}
 			if !testCase.errFn(err) {
 				t.Errorf("%s: unexpected error: %v", k, err)
 				return
@@ -498,15 +501,16 @@ func TestAnnotateObject(t *testing.T) {
 	}
 	tf.ClientConfigVal = cmdtesting.DefaultClientConfig()
 
-	iostreams, _, bufOut, _ := genericiooptions.NewTestIOStreams()
+	iostreams, _, bufOut, _ := genericclioptions.NewTestIOStreams()
 	cmd := NewCmdAnnotate("kubectl", tf, iostreams)
 	cmd.SetOut(bufOut)
 	cmd.SetErr(bufOut)
-	flags := NewAnnotateFlags(iostreams)
+	options := NewAnnotateOptions(iostreams)
 	args := []string{"pods/foo", "a=b", "c-"}
-
-	options, err := flags.ToOptions(tf, cmd, args)
-	if err != nil {
+	if err := options.Complete(tf, cmd, args); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if err := options.Validate(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if err := options.RunAnnotate(); err != nil {
@@ -529,7 +533,7 @@ func TestAnnotateResourceVersion(t *testing.T) {
 					return &http.Response{
 						StatusCode: http.StatusOK,
 						Header:     cmdtesting.DefaultHeader(),
-						Body: io.NopCloser(bytes.NewBufferString(
+						Body: ioutil.NopCloser(bytes.NewBufferString(
 							`{"kind":"Pod","apiVersion":"v1","metadata":{"name":"foo","namespace":"test","resourceVersion":"10"}}`,
 						))}, nil
 				default:
@@ -539,7 +543,7 @@ func TestAnnotateResourceVersion(t *testing.T) {
 			case "PATCH":
 				switch req.URL.Path {
 				case "/namespaces/test/pods/foo":
-					body, err := io.ReadAll(req.Body)
+					body, err := ioutil.ReadAll(req.Body)
 					if err != nil {
 						t.Fatal(err)
 					}
@@ -549,7 +553,7 @@ func TestAnnotateResourceVersion(t *testing.T) {
 					return &http.Response{
 						StatusCode: http.StatusOK,
 						Header:     cmdtesting.DefaultHeader(),
-						Body: io.NopCloser(bytes.NewBufferString(
+						Body: ioutil.NopCloser(bytes.NewBufferString(
 							`{"kind":"Pod","apiVersion":"v1","metadata":{"name":"foo","namespace":"test","resourceVersion":"11"}}`,
 						))}, nil
 				default:
@@ -564,17 +568,17 @@ func TestAnnotateResourceVersion(t *testing.T) {
 	}
 	tf.ClientConfigVal = cmdtesting.DefaultClientConfig()
 
-	iostreams, _, bufOut, _ := genericiooptions.NewTestIOStreams()
+	iostreams, _, bufOut, _ := genericclioptions.NewTestIOStreams()
 	cmd := NewCmdAnnotate("kubectl", tf, iostreams)
 	cmd.SetOut(bufOut)
 	cmd.SetErr(bufOut)
-	//options := NewAnnotateOptions(iostreams)
-	flags := NewAnnotateFlags(iostreams)
-	flags.resourceVersion = "10"
+	options := NewAnnotateOptions(iostreams)
+	options.resourceVersion = "10"
 	args := []string{"pods/foo", "a=b"}
-
-	options, err := flags.ToOptions(tf, cmd, args)
-	if err != nil {
+	if err := options.Complete(tf, cmd, args); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if err := options.Validate(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if err := options.RunAnnotate(); err != nil {
@@ -619,19 +623,19 @@ func TestAnnotateObjectFromFile(t *testing.T) {
 	}
 	tf.ClientConfigVal = cmdtesting.DefaultClientConfig()
 
-	iostreams, _, bufOut, _ := genericiooptions.NewTestIOStreams()
+	iostreams, _, bufOut, _ := genericclioptions.NewTestIOStreams()
 	cmd := NewCmdAnnotate("kubectl", tf, iostreams)
 	cmd.SetOut(bufOut)
 	cmd.SetErr(bufOut)
-	flags := NewAnnotateFlags(iostreams)
-	flags.Filenames = []string{"../../../testdata/controller.yaml"}
+	options := NewAnnotateOptions(iostreams)
+	options.Filenames = []string{"../../../testdata/controller.yaml"}
 	args := []string{"a=b", "c-"}
-
-	options, err := flags.ToOptions(tf, cmd, args)
-	if err != nil {
+	if err := options.Complete(tf, cmd, args); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-
+	if err := options.Validate(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if err := options.RunAnnotate(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -651,19 +655,18 @@ func TestAnnotateLocal(t *testing.T) {
 	}
 	tf.ClientConfigVal = cmdtesting.DefaultClientConfig()
 
-	iostreams, _, _, _ := genericiooptions.NewTestIOStreams()
+	iostreams, _, _, _ := genericclioptions.NewTestIOStreams()
 	cmd := NewCmdAnnotate("kubectl", tf, iostreams)
-	flags := NewAnnotateFlags(iostreams)
-	flags.Local = true
-	flags.Filenames = []string{"../../../testdata/controller.yaml"}
+	options := NewAnnotateOptions(iostreams)
+	options.local = true
+	options.Filenames = []string{"../../../testdata/controller.yaml"}
 	args := []string{"a=b"}
-
-	options, err := flags.ToOptions(tf, cmd, args)
-
-	if err != nil {
+	if err := options.Complete(tf, cmd, args); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-
+	if err := options.Validate(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if err := options.RunAnnotate(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -707,16 +710,17 @@ func TestAnnotateMultipleObjects(t *testing.T) {
 	}
 	tf.ClientConfigVal = cmdtesting.DefaultClientConfig()
 
-	iostreams, _, _, _ := genericiooptions.NewTestIOStreams()
+	iostreams, _, _, _ := genericclioptions.NewTestIOStreams()
 	cmd := NewCmdAnnotate("kubectl", tf, iostreams)
 	cmd.SetOut(iostreams.Out)
 	cmd.SetErr(iostreams.Out)
-	flags := NewAnnotateFlags(iostreams)
-	flags.All = true
+	options := NewAnnotateOptions(iostreams)
+	options.all = true
 	args := []string{"pods", "a=b", "c-"}
-
-	options, err := flags.ToOptions(tf, cmd, args)
-	if err != nil {
+	if err := options.Complete(tf, cmd, args); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if err := options.Validate(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if err := options.RunAnnotate(); err != nil {

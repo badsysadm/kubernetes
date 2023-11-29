@@ -1,8 +1,89 @@
 {
   "components": {
     "schemas": {
-      "io.k8s.api.networking.v1alpha1.IPAddress": {
-        "description": "IPAddress represents a single IP of a single IP Family. The object is designed to be used by APIs that operate on IP addresses. The object is used by the Service core API for allocation of IP addresses. An IP address can be represented in different formats, to guarantee the uniqueness of the IP, the name of the object is the IP address in canonical format, four decimal digits separated by dots suppressing leading zeros for IPv4 and the representation defined by RFC 5952 for IPv6. Valid: 192.168.1.5 or 2001:db8::1 or 2001:db8:aaaa:bbbb:cccc:dddd:eeee:1 Invalid: 10.01.2.3 or 2001:db8:0:0:0::1",
+      "io.k8s.api.core.v1.NodeSelector": {
+        "description": "A node selector represents the union of the results of one or more label queries over a set of nodes; that is, it represents the OR of the selectors represented by the node selector terms.",
+        "properties": {
+          "nodeSelectorTerms": {
+            "description": "Required. A list of node selector terms. The terms are ORed.",
+            "items": {
+              "allOf": [
+                {
+                  "$ref": "#/components/schemas/io.k8s.api.core.v1.NodeSelectorTerm"
+                }
+              ],
+              "default": {}
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "nodeSelectorTerms"
+        ],
+        "type": "object",
+        "x-kubernetes-map-type": "atomic"
+      },
+      "io.k8s.api.core.v1.NodeSelectorRequirement": {
+        "description": "A node selector requirement is a selector that contains values, a key, and an operator that relates the key and values.",
+        "properties": {
+          "key": {
+            "default": "",
+            "description": "The label key that the selector applies to.",
+            "type": "string"
+          },
+          "operator": {
+            "default": "",
+            "description": "Represents a key's relationship to a set of values. Valid operators are In, NotIn, Exists, DoesNotExist. Gt, and Lt.\n\n",
+            "type": "string"
+          },
+          "values": {
+            "description": "An array of string values. If the operator is In or NotIn, the values array must be non-empty. If the operator is Exists or DoesNotExist, the values array must be empty. If the operator is Gt or Lt, the values array must have a single element, which will be interpreted as an integer. This array is replaced during a strategic merge patch.",
+            "items": {
+              "default": "",
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "key",
+          "operator"
+        ],
+        "type": "object"
+      },
+      "io.k8s.api.core.v1.NodeSelectorTerm": {
+        "description": "A null or empty node selector term matches no objects. The requirements of them are ANDed. The TopologySelectorTerm type implements a subset of the NodeSelectorTerm.",
+        "properties": {
+          "matchExpressions": {
+            "description": "A list of node selector requirements by node's labels.",
+            "items": {
+              "allOf": [
+                {
+                  "$ref": "#/components/schemas/io.k8s.api.core.v1.NodeSelectorRequirement"
+                }
+              ],
+              "default": {}
+            },
+            "type": "array"
+          },
+          "matchFields": {
+            "description": "A list of node selector requirements by node's fields.",
+            "items": {
+              "allOf": [
+                {
+                  "$ref": "#/components/schemas/io.k8s.api.core.v1.NodeSelectorRequirement"
+                }
+              ],
+              "default": {}
+            },
+            "type": "array"
+          }
+        },
+        "type": "object",
+        "x-kubernetes-map-type": "atomic"
+      },
+      "io.k8s.api.networking.v1alpha1.ClusterCIDR": {
+        "description": "ClusterCIDR represents a single configuration for per-Node Pod CIDR allocations when the MultiCIDRRangeAllocator is enabled (see the config for kube-controller-manager).  A cluster may have any number of ClusterCIDR resources, all of which will be considered when allocating a CIDR for a Node.  A ClusterCIDR is eligible to be used for a given Node when the node selector matches the node in question and has free CIDRs to allocate.  In case of multiple matching ClusterCIDR resources, the allocator will attempt to break ties using internal heuristics, but any ClusterCIDR whose node selector matches the Node may be used.",
         "properties": {
           "apiVersion": {
             "description": "APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources",
@@ -24,35 +105,35 @@
           "spec": {
             "allOf": [
               {
-                "$ref": "#/components/schemas/io.k8s.api.networking.v1alpha1.IPAddressSpec"
+                "$ref": "#/components/schemas/io.k8s.api.networking.v1alpha1.ClusterCIDRSpec"
               }
             ],
             "default": {},
-            "description": "spec is the desired state of the IPAddress. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#spec-and-status"
+            "description": "Spec is the desired state of the ClusterCIDR. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#spec-and-status"
           }
         },
         "type": "object",
         "x-kubernetes-group-version-kind": [
           {
             "group": "networking.k8s.io",
-            "kind": "IPAddress",
+            "kind": "ClusterCIDR",
             "version": "v1alpha1"
           }
         ]
       },
-      "io.k8s.api.networking.v1alpha1.IPAddressList": {
-        "description": "IPAddressList contains a list of IPAddress.",
+      "io.k8s.api.networking.v1alpha1.ClusterCIDRList": {
+        "description": "ClusterCIDRList contains a list of ClusterCIDR.",
         "properties": {
           "apiVersion": {
             "description": "APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources",
             "type": "string"
           },
           "items": {
-            "description": "items is the list of IPAddresses.",
+            "description": "Items is the list of ClusterCIDRs.",
             "items": {
               "allOf": [
                 {
-                  "$ref": "#/components/schemas/io.k8s.api.networking.v1alpha1.IPAddress"
+                  "$ref": "#/components/schemas/io.k8s.api.networking.v1alpha1.ClusterCIDR"
                 }
               ],
               "default": {}
@@ -80,45 +161,42 @@
         "x-kubernetes-group-version-kind": [
           {
             "group": "networking.k8s.io",
-            "kind": "IPAddressList",
+            "kind": "ClusterCIDRList",
             "version": "v1alpha1"
           }
         ]
       },
-      "io.k8s.api.networking.v1alpha1.IPAddressSpec": {
-        "description": "IPAddressSpec describe the attributes in an IP Address.",
+      "io.k8s.api.networking.v1alpha1.ClusterCIDRSpec": {
+        "description": "ClusterCIDRSpec defines the desired state of ClusterCIDR.",
         "properties": {
-          "parentRef": {
+          "ipv4": {
+            "default": "",
+            "description": "IPv4 defines an IPv4 IP block in CIDR notation(e.g. \"10.0.0.0/8\"). At least one of IPv4 and IPv6 must be specified. This field is immutable.",
+            "type": "string"
+          },
+          "ipv6": {
+            "default": "",
+            "description": "IPv6 defines an IPv6 IP block in CIDR notation(e.g. \"2001:db8::/64\"). At least one of IPv4 and IPv6 must be specified. This field is immutable.",
+            "type": "string"
+          },
+          "nodeSelector": {
             "allOf": [
               {
-                "$ref": "#/components/schemas/io.k8s.api.networking.v1alpha1.ParentReference"
+                "$ref": "#/components/schemas/io.k8s.api.core.v1.NodeSelector"
               }
             ],
-            "description": "ParentRef references the resource that an IPAddress is attached to. An IPAddress must reference a parent object."
+            "description": "NodeSelector defines which nodes the config is applicable to. An empty or nil NodeSelector selects all nodes. This field is immutable."
+          },
+          "perNodeHostBits": {
+            "default": 0,
+            "description": "PerNodeHostBits defines the number of host bits to be configured per node. A subnet mask determines how much of the address is used for network bits and host bits. For example an IPv4 address of 192.168.0.0/24, splits the address into 24 bits for the network portion and 8 bits for the host portion. To allocate 256 IPs, set this field to 8 (a /24 mask for IPv4 or a /120 for IPv6). Minimum value is 4 (16 IPs). This field is immutable.",
+            "format": "int32",
+            "type": "integer"
           }
         },
-        "type": "object"
-      },
-      "io.k8s.api.networking.v1alpha1.ParentReference": {
-        "description": "ParentReference describes a reference to a parent object.",
-        "properties": {
-          "group": {
-            "description": "Group is the group of the object being referenced.",
-            "type": "string"
-          },
-          "name": {
-            "description": "Name is the name of the object being referenced.",
-            "type": "string"
-          },
-          "namespace": {
-            "description": "Namespace is the namespace of the object being referenced.",
-            "type": "string"
-          },
-          "resource": {
-            "description": "Resource is the resource of the object being referenced.",
-            "type": "string"
-          }
-        },
+        "required": [
+          "perNodeHostBits"
+        ],
         "type": "object"
       },
       "io.k8s.apimachinery.pkg.apis.meta.v1.APIResource": {
@@ -403,11 +481,6 @@
           {
             "group": "certificates.k8s.io",
             "kind": "DeleteOptions",
-            "version": "v1alpha1"
-          },
-          {
-            "group": "certificates.k8s.io",
-            "kind": "DeleteOptions",
             "version": "v1beta1"
           },
           {
@@ -448,7 +521,7 @@
           {
             "group": "flowcontrol.apiserver.k8s.io",
             "kind": "DeleteOptions",
-            "version": "v1"
+            "version": "v1alpha1"
           },
           {
             "group": "flowcontrol.apiserver.k8s.io",
@@ -533,7 +606,7 @@
           {
             "group": "resource.k8s.io",
             "kind": "DeleteOptions",
-            "version": "v1alpha2"
+            "version": "v1alpha1"
           },
           {
             "group": "scheduling.k8s.io",
@@ -644,7 +717,7 @@
               "default": "",
               "type": "string"
             },
-            "description": "Annotations is an unstructured key value map stored with a resource that may be set by external tools to store and retrieve arbitrary metadata. They are not queryable and should be preserved when modifying objects. More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/annotations",
+            "description": "Annotations is an unstructured key value map stored with a resource that may be set by external tools to store and retrieve arbitrary metadata. They are not queryable and should be preserved when modifying objects. More info: http://kubernetes.io/docs/user-guide/annotations",
             "type": "object"
           },
           "creationTimestamp": {
@@ -653,6 +726,7 @@
                 "$ref": "#/components/schemas/io.k8s.apimachinery.pkg.apis.meta.v1.Time"
               }
             ],
+            "default": {},
             "description": "CreationTimestamp is a timestamp representing the server time when this object was created. It is not guaranteed to be set in happens-before order across separate operations. Clients may not set this value. It is represented in RFC3339 form and is in UTC.\n\nPopulated by the system. Read-only. Null for lists. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#metadata"
           },
           "deletionGracePeriodSeconds": {
@@ -691,7 +765,7 @@
               "default": "",
               "type": "string"
             },
-            "description": "Map of string keys and values that can be used to organize and categorize (scope and select) objects. May match selectors of replication controllers and services. More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/labels",
+            "description": "Map of string keys and values that can be used to organize and categorize (scope and select) objects. May match selectors of replication controllers and services. More info: http://kubernetes.io/docs/user-guide/labels",
             "type": "object"
           },
           "managedFields": {
@@ -707,11 +781,11 @@
             "type": "array"
           },
           "name": {
-            "description": "Name must be unique within a namespace. Is required when creating resources, although some resources may allow a client to request the generation of an appropriate name automatically. Name is primarily intended for creation idempotence and configuration definition. Cannot be updated. More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names#names",
+            "description": "Name must be unique within a namespace. Is required when creating resources, although some resources may allow a client to request the generation of an appropriate name automatically. Name is primarily intended for creation idempotence and configuration definition. Cannot be updated. More info: http://kubernetes.io/docs/user-guide/identifiers#names",
             "type": "string"
           },
           "namespace": {
-            "description": "Namespace defines the space within which each name must be unique. An empty namespace is equivalent to the \"default\" namespace, but \"default\" is the canonical representation. Not all objects are required to be scoped to a namespace - the value of this field for those objects will be empty.\n\nMust be a DNS_LABEL. Cannot be updated. More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/namespaces",
+            "description": "Namespace defines the space within which each name must be unique. An empty namespace is equivalent to the \"default\" namespace, but \"default\" is the canonical representation. Not all objects are required to be scoped to a namespace - the value of this field for those objects will be empty.\n\nMust be a DNS_LABEL. Cannot be updated. More info: http://kubernetes.io/docs/user-guide/namespaces",
             "type": "string"
           },
           "ownerReferences": {
@@ -737,7 +811,7 @@
             "type": "string"
           },
           "uid": {
-            "description": "UID is the unique in time and space value for this object. It is typically generated by the server on successful creation of a resource and is not allowed to change on PUT operations.\n\nPopulated by the system. Read-only. More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names#uids",
+            "description": "UID is the unique in time and space value for this object. It is typically generated by the server on successful creation of a resource and is not allowed to change on PUT operations.\n\nPopulated by the system. Read-only. More info: http://kubernetes.io/docs/user-guide/identifiers#uids",
             "type": "string"
           }
         },
@@ -766,12 +840,12 @@
           },
           "name": {
             "default": "",
-            "description": "Name of the referent. More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names#names",
+            "description": "Name of the referent. More info: http://kubernetes.io/docs/user-guide/identifiers#names",
             "type": "string"
           },
           "uid": {
             "default": "",
-            "description": "UID of the referent. More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names#uids",
+            "description": "UID of the referent. More info: http://kubernetes.io/docs/user-guide/identifiers#uids",
             "type": "string"
           }
         },
@@ -858,7 +932,7 @@
           {
             "group": "resource.k8s.io",
             "kind": "Status",
-            "version": "v1alpha2"
+            "version": "v1alpha1"
           }
         ]
       },
@@ -913,7 +987,7 @@
             "type": "integer"
           },
           "uid": {
-            "description": "UID of the resource. (when there is a single resource which can be described). More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names#uids",
+            "description": "UID of the resource. (when there is a single resource which can be described). More info: http://kubernetes.io/docs/user-guide/identifiers#uids",
             "type": "string"
           }
         },
@@ -933,6 +1007,7 @@
                 "$ref": "#/components/schemas/io.k8s.apimachinery.pkg.runtime.RawExtension"
               }
             ],
+            "default": {},
             "description": "Object is:\n * If Type is Added or Modified: the new state of the object.\n * If Type is Deleted: the state of the object immediately before deletion.\n * If Type is Error: *Status is recommended; other types may make sense\n   depending on context."
           },
           "type": {
@@ -1074,11 +1149,6 @@
           {
             "group": "certificates.k8s.io",
             "kind": "WatchEvent",
-            "version": "v1alpha1"
-          },
-          {
-            "group": "certificates.k8s.io",
-            "kind": "WatchEvent",
             "version": "v1beta1"
           },
           {
@@ -1119,7 +1189,7 @@
           {
             "group": "flowcontrol.apiserver.k8s.io",
             "kind": "WatchEvent",
-            "version": "v1"
+            "version": "v1alpha1"
           },
           {
             "group": "flowcontrol.apiserver.k8s.io",
@@ -1204,7 +1274,7 @@
           {
             "group": "resource.k8s.io",
             "kind": "WatchEvent",
-            "version": "v1alpha2"
+            "version": "v1alpha1"
           },
           {
             "group": "scheduling.k8s.io",
@@ -1292,10 +1362,10 @@
         ]
       }
     },
-    "/apis/networking.k8s.io/v1alpha1/ipaddresses": {
+    "/apis/networking.k8s.io/v1alpha1/clustercidrs": {
       "delete": {
-        "description": "delete collection of IPAddress",
-        "operationId": "deleteNetworkingV1alpha1CollectionIPAddress",
+        "description": "delete collection of ClusterCIDR",
+        "operationId": "deleteNetworkingV1alpha1CollectionClusterCIDR",
         "parameters": [
           {
             "description": "The continue option should be set when retrieving more results from the server. Since this value is server defined, clients may only use the continue value from a previous query result with identical query parameters (except for the value of continue) and the server may reject a continue value it does not recognize. If the specified continue value is no longer valid whether due to expiration (generally five to fifteen minutes) or a configuration change on the server, the server will respond with a 410 ResourceExpired error together with a continue token. If the client needs a consistent list, it must restart their list without the continue field. Otherwise, the client may send another list request with the token received with the 410 error, the server will respond with a list starting from the next key, but from the latest snapshot, which is inconsistent from the previous list results - objects that are created, modified, or deleted after the first list request will be included in the response, as long as their keys are after the \"next key\".\n\nThis field is not supported when watch is true. Clients may start a watch from the last resourceVersion value returned by the server and not miss any modifications.",
@@ -1388,15 +1458,6 @@
             }
           },
           {
-            "description": "`sendInitialEvents=true` may be set together with `watch=true`. In that case, the watch stream will begin with synthetic events to produce the current state of objects in the collection. Once all such events have been sent, a synthetic \"Bookmark\" event  will be sent. The bookmark will report the ResourceVersion (RV) corresponding to the set of objects, and be marked with `\"k8s.io/initial-events-end\": \"true\"` annotation. Afterwards, the watch stream will proceed as usual, sending watch events corresponding to changes (subsequent to the RV) to objects watched.\n\nWhen `sendInitialEvents` option is set, we require `resourceVersionMatch` option to also be set. The semantic of the watch request is as following: - `resourceVersionMatch` = NotOlderThan\n  is interpreted as \"data at least as new as the provided `resourceVersion`\"\n  and the bookmark event is send when the state is synced\n  to a `resourceVersion` at least as fresh as the one provided by the ListOptions.\n  If `resourceVersion` is unset, this is interpreted as \"consistent read\" and the\n  bookmark event is send when the state is synced at least to the moment\n  when request started being processed.\n- `resourceVersionMatch` set to any other value or unset\n  Invalid error is returned.\n\nDefaults to true if `resourceVersion=\"\"` or `resourceVersion=\"0\"` (for backward compatibility reasons) and to false otherwise.",
-            "in": "query",
-            "name": "sendInitialEvents",
-            "schema": {
-              "type": "boolean",
-              "uniqueItems": true
-            }
-          },
-          {
             "description": "Timeout for the list/watch call. This limits the duration of the call, regardless of any activity or inactivity.",
             "in": "query",
             "name": "timeoutSeconds",
@@ -1446,13 +1507,13 @@
         "x-kubernetes-action": "deletecollection",
         "x-kubernetes-group-version-kind": {
           "group": "networking.k8s.io",
-          "kind": "IPAddress",
+          "kind": "ClusterCIDR",
           "version": "v1alpha1"
         }
       },
       "get": {
-        "description": "list or watch objects of kind IPAddress",
-        "operationId": "listNetworkingV1alpha1IPAddress",
+        "description": "list or watch objects of kind ClusterCIDR",
+        "operationId": "listNetworkingV1alpha1ClusterCIDR",
         "parameters": [
           {
             "description": "allowWatchBookmarks requests watch events with type \"BOOKMARK\". Servers that do not implement bookmarks may ignore this flag and bookmarks are sent at the server's discretion. Clients should not assume bookmarks are returned at any specific interval, nor may they assume the server will send any BOOKMARK event during a session. If this is not a watch, this field is ignored.",
@@ -1518,15 +1579,6 @@
             }
           },
           {
-            "description": "`sendInitialEvents=true` may be set together with `watch=true`. In that case, the watch stream will begin with synthetic events to produce the current state of objects in the collection. Once all such events have been sent, a synthetic \"Bookmark\" event  will be sent. The bookmark will report the ResourceVersion (RV) corresponding to the set of objects, and be marked with `\"k8s.io/initial-events-end\": \"true\"` annotation. Afterwards, the watch stream will proceed as usual, sending watch events corresponding to changes (subsequent to the RV) to objects watched.\n\nWhen `sendInitialEvents` option is set, we require `resourceVersionMatch` option to also be set. The semantic of the watch request is as following: - `resourceVersionMatch` = NotOlderThan\n  is interpreted as \"data at least as new as the provided `resourceVersion`\"\n  and the bookmark event is send when the state is synced\n  to a `resourceVersion` at least as fresh as the one provided by the ListOptions.\n  If `resourceVersion` is unset, this is interpreted as \"consistent read\" and the\n  bookmark event is send when the state is synced at least to the moment\n  when request started being processed.\n- `resourceVersionMatch` set to any other value or unset\n  Invalid error is returned.\n\nDefaults to true if `resourceVersion=\"\"` or `resourceVersion=\"0\"` (for backward compatibility reasons) and to false otherwise.",
-            "in": "query",
-            "name": "sendInitialEvents",
-            "schema": {
-              "type": "boolean",
-              "uniqueItems": true
-            }
-          },
-          {
             "description": "Timeout for the list/watch call. This limits the duration of the call, regardless of any activity or inactivity.",
             "in": "query",
             "name": "timeoutSeconds",
@@ -1550,27 +1602,27 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/io.k8s.api.networking.v1alpha1.IPAddressList"
+                  "$ref": "#/components/schemas/io.k8s.api.networking.v1alpha1.ClusterCIDRList"
                 }
               },
               "application/json;stream=watch": {
                 "schema": {
-                  "$ref": "#/components/schemas/io.k8s.api.networking.v1alpha1.IPAddressList"
+                  "$ref": "#/components/schemas/io.k8s.api.networking.v1alpha1.ClusterCIDRList"
                 }
               },
               "application/vnd.kubernetes.protobuf": {
                 "schema": {
-                  "$ref": "#/components/schemas/io.k8s.api.networking.v1alpha1.IPAddressList"
+                  "$ref": "#/components/schemas/io.k8s.api.networking.v1alpha1.ClusterCIDRList"
                 }
               },
               "application/vnd.kubernetes.protobuf;stream=watch": {
                 "schema": {
-                  "$ref": "#/components/schemas/io.k8s.api.networking.v1alpha1.IPAddressList"
+                  "$ref": "#/components/schemas/io.k8s.api.networking.v1alpha1.ClusterCIDRList"
                 }
               },
               "application/yaml": {
                 "schema": {
-                  "$ref": "#/components/schemas/io.k8s.api.networking.v1alpha1.IPAddressList"
+                  "$ref": "#/components/schemas/io.k8s.api.networking.v1alpha1.ClusterCIDRList"
                 }
               }
             },
@@ -1586,13 +1638,13 @@
         "x-kubernetes-action": "list",
         "x-kubernetes-group-version-kind": {
           "group": "networking.k8s.io",
-          "kind": "IPAddress",
+          "kind": "ClusterCIDR",
           "version": "v1alpha1"
         }
       },
       "parameters": [
         {
-          "description": "If 'true', then the output is pretty printed. Defaults to 'false' unless the user-agent indicates a browser or command-line HTTP tool (curl and wget).",
+          "description": "If 'true', then the output is pretty printed.",
           "in": "query",
           "name": "pretty",
           "schema": {
@@ -1602,8 +1654,8 @@
         }
       ],
       "post": {
-        "description": "create an IPAddress",
-        "operationId": "createNetworkingV1alpha1IPAddress",
+        "description": "create a ClusterCIDR",
+        "operationId": "createNetworkingV1alpha1ClusterCIDR",
         "parameters": [
           {
             "description": "When present, indicates that modifications should not be persisted. An invalid or unrecognized dryRun directive will result in an error response and no further processing of the request. Valid values are: - All: all dry run stages will be processed",
@@ -1624,7 +1676,7 @@
             }
           },
           {
-            "description": "fieldValidation instructs the server on how to handle objects in the request (POST/PUT/PATCH) containing unknown or duplicate fields. Valid values are: - Ignore: This will ignore any unknown fields that are silently dropped from the object, and will ignore all but the last duplicate field that the decoder encounters. This is the default behavior prior to v1.23. - Warn: This will send a warning via the standard warning response header for each unknown field that is dropped from the object, and for each duplicate field that is encountered. The request will still succeed if there are no other errors, and will only persist the last of any duplicate fields. This is the default in v1.23+ - Strict: This will fail the request with a BadRequest error if any unknown fields would be dropped from the object, or if any duplicate fields are present. The error returned from the server will contain all unknown and duplicate fields encountered.",
+            "description": "fieldValidation instructs the server on how to handle objects in the request (POST/PUT/PATCH) containing unknown or duplicate fields, provided that the `ServerSideFieldValidation` feature gate is also enabled. Valid values are: - Ignore: This will ignore any unknown fields that are silently dropped from the object, and will ignore all but the last duplicate field that the decoder encounters. This is the default behavior prior to v1.23 and is the default behavior when the `ServerSideFieldValidation` feature gate is disabled. - Warn: This will send a warning via the standard warning response header for each unknown field that is dropped from the object, and for each duplicate field that is encountered. The request will still succeed if there are no other errors, and will only persist the last of any duplicate fields. This is the default when the `ServerSideFieldValidation` feature gate is enabled. - Strict: This will fail the request with a BadRequest error if any unknown fields would be dropped from the object, or if any duplicate fields are present. The error returned from the server will contain all unknown and duplicate fields encountered.",
             "in": "query",
             "name": "fieldValidation",
             "schema": {
@@ -1637,28 +1689,27 @@
           "content": {
             "*/*": {
               "schema": {
-                "$ref": "#/components/schemas/io.k8s.api.networking.v1alpha1.IPAddress"
+                "$ref": "#/components/schemas/io.k8s.api.networking.v1alpha1.ClusterCIDR"
               }
             }
-          },
-          "required": true
+          }
         },
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/io.k8s.api.networking.v1alpha1.IPAddress"
+                  "$ref": "#/components/schemas/io.k8s.api.networking.v1alpha1.ClusterCIDR"
                 }
               },
               "application/vnd.kubernetes.protobuf": {
                 "schema": {
-                  "$ref": "#/components/schemas/io.k8s.api.networking.v1alpha1.IPAddress"
+                  "$ref": "#/components/schemas/io.k8s.api.networking.v1alpha1.ClusterCIDR"
                 }
               },
               "application/yaml": {
                 "schema": {
-                  "$ref": "#/components/schemas/io.k8s.api.networking.v1alpha1.IPAddress"
+                  "$ref": "#/components/schemas/io.k8s.api.networking.v1alpha1.ClusterCIDR"
                 }
               }
             },
@@ -1668,17 +1719,17 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/io.k8s.api.networking.v1alpha1.IPAddress"
+                  "$ref": "#/components/schemas/io.k8s.api.networking.v1alpha1.ClusterCIDR"
                 }
               },
               "application/vnd.kubernetes.protobuf": {
                 "schema": {
-                  "$ref": "#/components/schemas/io.k8s.api.networking.v1alpha1.IPAddress"
+                  "$ref": "#/components/schemas/io.k8s.api.networking.v1alpha1.ClusterCIDR"
                 }
               },
               "application/yaml": {
                 "schema": {
-                  "$ref": "#/components/schemas/io.k8s.api.networking.v1alpha1.IPAddress"
+                  "$ref": "#/components/schemas/io.k8s.api.networking.v1alpha1.ClusterCIDR"
                 }
               }
             },
@@ -1688,17 +1739,17 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/io.k8s.api.networking.v1alpha1.IPAddress"
+                  "$ref": "#/components/schemas/io.k8s.api.networking.v1alpha1.ClusterCIDR"
                 }
               },
               "application/vnd.kubernetes.protobuf": {
                 "schema": {
-                  "$ref": "#/components/schemas/io.k8s.api.networking.v1alpha1.IPAddress"
+                  "$ref": "#/components/schemas/io.k8s.api.networking.v1alpha1.ClusterCIDR"
                 }
               },
               "application/yaml": {
                 "schema": {
-                  "$ref": "#/components/schemas/io.k8s.api.networking.v1alpha1.IPAddress"
+                  "$ref": "#/components/schemas/io.k8s.api.networking.v1alpha1.ClusterCIDR"
                 }
               }
             },
@@ -1714,15 +1765,15 @@
         "x-kubernetes-action": "post",
         "x-kubernetes-group-version-kind": {
           "group": "networking.k8s.io",
-          "kind": "IPAddress",
+          "kind": "ClusterCIDR",
           "version": "v1alpha1"
         }
       }
     },
-    "/apis/networking.k8s.io/v1alpha1/ipaddresses/{name}": {
+    "/apis/networking.k8s.io/v1alpha1/clustercidrs/{name}": {
       "delete": {
-        "description": "delete an IPAddress",
-        "operationId": "deleteNetworkingV1alpha1IPAddress",
+        "description": "delete a ClusterCIDR",
+        "operationId": "deleteNetworkingV1alpha1ClusterCIDR",
         "parameters": [
           {
             "description": "When present, indicates that modifications should not be persisted. An invalid or unrecognized dryRun directive will result in an error response and no further processing of the request. Valid values are: - All: all dry run stages will be processed",
@@ -1821,29 +1872,29 @@
         "x-kubernetes-action": "delete",
         "x-kubernetes-group-version-kind": {
           "group": "networking.k8s.io",
-          "kind": "IPAddress",
+          "kind": "ClusterCIDR",
           "version": "v1alpha1"
         }
       },
       "get": {
-        "description": "read the specified IPAddress",
-        "operationId": "readNetworkingV1alpha1IPAddress",
+        "description": "read the specified ClusterCIDR",
+        "operationId": "readNetworkingV1alpha1ClusterCIDR",
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/io.k8s.api.networking.v1alpha1.IPAddress"
+                  "$ref": "#/components/schemas/io.k8s.api.networking.v1alpha1.ClusterCIDR"
                 }
               },
               "application/vnd.kubernetes.protobuf": {
                 "schema": {
-                  "$ref": "#/components/schemas/io.k8s.api.networking.v1alpha1.IPAddress"
+                  "$ref": "#/components/schemas/io.k8s.api.networking.v1alpha1.ClusterCIDR"
                 }
               },
               "application/yaml": {
                 "schema": {
-                  "$ref": "#/components/schemas/io.k8s.api.networking.v1alpha1.IPAddress"
+                  "$ref": "#/components/schemas/io.k8s.api.networking.v1alpha1.ClusterCIDR"
                 }
               }
             },
@@ -1859,13 +1910,13 @@
         "x-kubernetes-action": "get",
         "x-kubernetes-group-version-kind": {
           "group": "networking.k8s.io",
-          "kind": "IPAddress",
+          "kind": "ClusterCIDR",
           "version": "v1alpha1"
         }
       },
       "parameters": [
         {
-          "description": "name of the IPAddress",
+          "description": "name of the ClusterCIDR",
           "in": "path",
           "name": "name",
           "required": true,
@@ -1875,7 +1926,7 @@
           }
         },
         {
-          "description": "If 'true', then the output is pretty printed. Defaults to 'false' unless the user-agent indicates a browser or command-line HTTP tool (curl and wget).",
+          "description": "If 'true', then the output is pretty printed.",
           "in": "query",
           "name": "pretty",
           "schema": {
@@ -1885,8 +1936,8 @@
         }
       ],
       "patch": {
-        "description": "partially update the specified IPAddress",
-        "operationId": "patchNetworkingV1alpha1IPAddress",
+        "description": "partially update the specified ClusterCIDR",
+        "operationId": "patchNetworkingV1alpha1ClusterCIDR",
         "parameters": [
           {
             "description": "When present, indicates that modifications should not be persisted. An invalid or unrecognized dryRun directive will result in an error response and no further processing of the request. Valid values are: - All: all dry run stages will be processed",
@@ -1907,7 +1958,7 @@
             }
           },
           {
-            "description": "fieldValidation instructs the server on how to handle objects in the request (POST/PUT/PATCH) containing unknown or duplicate fields. Valid values are: - Ignore: This will ignore any unknown fields that are silently dropped from the object, and will ignore all but the last duplicate field that the decoder encounters. This is the default behavior prior to v1.23. - Warn: This will send a warning via the standard warning response header for each unknown field that is dropped from the object, and for each duplicate field that is encountered. The request will still succeed if there are no other errors, and will only persist the last of any duplicate fields. This is the default in v1.23+ - Strict: This will fail the request with a BadRequest error if any unknown fields would be dropped from the object, or if any duplicate fields are present. The error returned from the server will contain all unknown and duplicate fields encountered.",
+            "description": "fieldValidation instructs the server on how to handle objects in the request (POST/PUT/PATCH) containing unknown or duplicate fields, provided that the `ServerSideFieldValidation` feature gate is also enabled. Valid values are: - Ignore: This will ignore any unknown fields that are silently dropped from the object, and will ignore all but the last duplicate field that the decoder encounters. This is the default behavior prior to v1.23 and is the default behavior when the `ServerSideFieldValidation` feature gate is disabled. - Warn: This will send a warning via the standard warning response header for each unknown field that is dropped from the object, and for each duplicate field that is encountered. The request will still succeed if there are no other errors, and will only persist the last of any duplicate fields. This is the default when the `ServerSideFieldValidation` feature gate is enabled. - Strict: This will fail the request with a BadRequest error if any unknown fields would be dropped from the object, or if any duplicate fields are present. The error returned from the server will contain all unknown and duplicate fields encountered.",
             "in": "query",
             "name": "fieldValidation",
             "schema": {
@@ -1947,25 +1998,24 @@
                 "$ref": "#/components/schemas/io.k8s.apimachinery.pkg.apis.meta.v1.Patch"
               }
             }
-          },
-          "required": true
+          }
         },
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/io.k8s.api.networking.v1alpha1.IPAddress"
+                  "$ref": "#/components/schemas/io.k8s.api.networking.v1alpha1.ClusterCIDR"
                 }
               },
               "application/vnd.kubernetes.protobuf": {
                 "schema": {
-                  "$ref": "#/components/schemas/io.k8s.api.networking.v1alpha1.IPAddress"
+                  "$ref": "#/components/schemas/io.k8s.api.networking.v1alpha1.ClusterCIDR"
                 }
               },
               "application/yaml": {
                 "schema": {
-                  "$ref": "#/components/schemas/io.k8s.api.networking.v1alpha1.IPAddress"
+                  "$ref": "#/components/schemas/io.k8s.api.networking.v1alpha1.ClusterCIDR"
                 }
               }
             },
@@ -1975,17 +2025,17 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/io.k8s.api.networking.v1alpha1.IPAddress"
+                  "$ref": "#/components/schemas/io.k8s.api.networking.v1alpha1.ClusterCIDR"
                 }
               },
               "application/vnd.kubernetes.protobuf": {
                 "schema": {
-                  "$ref": "#/components/schemas/io.k8s.api.networking.v1alpha1.IPAddress"
+                  "$ref": "#/components/schemas/io.k8s.api.networking.v1alpha1.ClusterCIDR"
                 }
               },
               "application/yaml": {
                 "schema": {
-                  "$ref": "#/components/schemas/io.k8s.api.networking.v1alpha1.IPAddress"
+                  "$ref": "#/components/schemas/io.k8s.api.networking.v1alpha1.ClusterCIDR"
                 }
               }
             },
@@ -2001,13 +2051,13 @@
         "x-kubernetes-action": "patch",
         "x-kubernetes-group-version-kind": {
           "group": "networking.k8s.io",
-          "kind": "IPAddress",
+          "kind": "ClusterCIDR",
           "version": "v1alpha1"
         }
       },
       "put": {
-        "description": "replace the specified IPAddress",
-        "operationId": "replaceNetworkingV1alpha1IPAddress",
+        "description": "replace the specified ClusterCIDR",
+        "operationId": "replaceNetworkingV1alpha1ClusterCIDR",
         "parameters": [
           {
             "description": "When present, indicates that modifications should not be persisted. An invalid or unrecognized dryRun directive will result in an error response and no further processing of the request. Valid values are: - All: all dry run stages will be processed",
@@ -2028,7 +2078,7 @@
             }
           },
           {
-            "description": "fieldValidation instructs the server on how to handle objects in the request (POST/PUT/PATCH) containing unknown or duplicate fields. Valid values are: - Ignore: This will ignore any unknown fields that are silently dropped from the object, and will ignore all but the last duplicate field that the decoder encounters. This is the default behavior prior to v1.23. - Warn: This will send a warning via the standard warning response header for each unknown field that is dropped from the object, and for each duplicate field that is encountered. The request will still succeed if there are no other errors, and will only persist the last of any duplicate fields. This is the default in v1.23+ - Strict: This will fail the request with a BadRequest error if any unknown fields would be dropped from the object, or if any duplicate fields are present. The error returned from the server will contain all unknown and duplicate fields encountered.",
+            "description": "fieldValidation instructs the server on how to handle objects in the request (POST/PUT/PATCH) containing unknown or duplicate fields, provided that the `ServerSideFieldValidation` feature gate is also enabled. Valid values are: - Ignore: This will ignore any unknown fields that are silently dropped from the object, and will ignore all but the last duplicate field that the decoder encounters. This is the default behavior prior to v1.23 and is the default behavior when the `ServerSideFieldValidation` feature gate is disabled. - Warn: This will send a warning via the standard warning response header for each unknown field that is dropped from the object, and for each duplicate field that is encountered. The request will still succeed if there are no other errors, and will only persist the last of any duplicate fields. This is the default when the `ServerSideFieldValidation` feature gate is enabled. - Strict: This will fail the request with a BadRequest error if any unknown fields would be dropped from the object, or if any duplicate fields are present. The error returned from the server will contain all unknown and duplicate fields encountered.",
             "in": "query",
             "name": "fieldValidation",
             "schema": {
@@ -2041,28 +2091,27 @@
           "content": {
             "*/*": {
               "schema": {
-                "$ref": "#/components/schemas/io.k8s.api.networking.v1alpha1.IPAddress"
+                "$ref": "#/components/schemas/io.k8s.api.networking.v1alpha1.ClusterCIDR"
               }
             }
-          },
-          "required": true
+          }
         },
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/io.k8s.api.networking.v1alpha1.IPAddress"
+                  "$ref": "#/components/schemas/io.k8s.api.networking.v1alpha1.ClusterCIDR"
                 }
               },
               "application/vnd.kubernetes.protobuf": {
                 "schema": {
-                  "$ref": "#/components/schemas/io.k8s.api.networking.v1alpha1.IPAddress"
+                  "$ref": "#/components/schemas/io.k8s.api.networking.v1alpha1.ClusterCIDR"
                 }
               },
               "application/yaml": {
                 "schema": {
-                  "$ref": "#/components/schemas/io.k8s.api.networking.v1alpha1.IPAddress"
+                  "$ref": "#/components/schemas/io.k8s.api.networking.v1alpha1.ClusterCIDR"
                 }
               }
             },
@@ -2072,17 +2121,17 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/io.k8s.api.networking.v1alpha1.IPAddress"
+                  "$ref": "#/components/schemas/io.k8s.api.networking.v1alpha1.ClusterCIDR"
                 }
               },
               "application/vnd.kubernetes.protobuf": {
                 "schema": {
-                  "$ref": "#/components/schemas/io.k8s.api.networking.v1alpha1.IPAddress"
+                  "$ref": "#/components/schemas/io.k8s.api.networking.v1alpha1.ClusterCIDR"
                 }
               },
               "application/yaml": {
                 "schema": {
-                  "$ref": "#/components/schemas/io.k8s.api.networking.v1alpha1.IPAddress"
+                  "$ref": "#/components/schemas/io.k8s.api.networking.v1alpha1.ClusterCIDR"
                 }
               }
             },
@@ -2098,15 +2147,15 @@
         "x-kubernetes-action": "put",
         "x-kubernetes-group-version-kind": {
           "group": "networking.k8s.io",
-          "kind": "IPAddress",
+          "kind": "ClusterCIDR",
           "version": "v1alpha1"
         }
       }
     },
-    "/apis/networking.k8s.io/v1alpha1/watch/ipaddresses": {
+    "/apis/networking.k8s.io/v1alpha1/watch/clustercidrs": {
       "get": {
-        "description": "watch individual changes to a list of IPAddress. deprecated: use the 'watch' parameter with a list operation instead.",
-        "operationId": "watchNetworkingV1alpha1IPAddressList",
+        "description": "watch individual changes to a list of ClusterCIDR. deprecated: use the 'watch' parameter with a list operation instead.",
+        "operationId": "watchNetworkingV1alpha1ClusterCIDRList",
         "responses": {
           "200": {
             "content": {
@@ -2148,7 +2197,7 @@
         "x-kubernetes-action": "watchlist",
         "x-kubernetes-group-version-kind": {
           "group": "networking.k8s.io",
-          "kind": "IPAddress",
+          "kind": "ClusterCIDR",
           "version": "v1alpha1"
         }
       },
@@ -2199,7 +2248,7 @@
           }
         },
         {
-          "description": "If 'true', then the output is pretty printed. Defaults to 'false' unless the user-agent indicates a browser or command-line HTTP tool (curl and wget).",
+          "description": "If 'true', then the output is pretty printed.",
           "in": "query",
           "name": "pretty",
           "schema": {
@@ -2226,15 +2275,6 @@
           }
         },
         {
-          "description": "`sendInitialEvents=true` may be set together with `watch=true`. In that case, the watch stream will begin with synthetic events to produce the current state of objects in the collection. Once all such events have been sent, a synthetic \"Bookmark\" event  will be sent. The bookmark will report the ResourceVersion (RV) corresponding to the set of objects, and be marked with `\"k8s.io/initial-events-end\": \"true\"` annotation. Afterwards, the watch stream will proceed as usual, sending watch events corresponding to changes (subsequent to the RV) to objects watched.\n\nWhen `sendInitialEvents` option is set, we require `resourceVersionMatch` option to also be set. The semantic of the watch request is as following: - `resourceVersionMatch` = NotOlderThan\n  is interpreted as \"data at least as new as the provided `resourceVersion`\"\n  and the bookmark event is send when the state is synced\n  to a `resourceVersion` at least as fresh as the one provided by the ListOptions.\n  If `resourceVersion` is unset, this is interpreted as \"consistent read\" and the\n  bookmark event is send when the state is synced at least to the moment\n  when request started being processed.\n- `resourceVersionMatch` set to any other value or unset\n  Invalid error is returned.\n\nDefaults to true if `resourceVersion=\"\"` or `resourceVersion=\"0\"` (for backward compatibility reasons) and to false otherwise.",
-          "in": "query",
-          "name": "sendInitialEvents",
-          "schema": {
-            "type": "boolean",
-            "uniqueItems": true
-          }
-        },
-        {
           "description": "Timeout for the list/watch call. This limits the duration of the call, regardless of any activity or inactivity.",
           "in": "query",
           "name": "timeoutSeconds",
@@ -2254,10 +2294,10 @@
         }
       ]
     },
-    "/apis/networking.k8s.io/v1alpha1/watch/ipaddresses/{name}": {
+    "/apis/networking.k8s.io/v1alpha1/watch/clustercidrs/{name}": {
       "get": {
-        "description": "watch changes to an object of kind IPAddress. deprecated: use the 'watch' parameter with a list operation instead, filtered to a single item with the 'fieldSelector' parameter.",
-        "operationId": "watchNetworkingV1alpha1IPAddress",
+        "description": "watch changes to an object of kind ClusterCIDR. deprecated: use the 'watch' parameter with a list operation instead, filtered to a single item with the 'fieldSelector' parameter.",
+        "operationId": "watchNetworkingV1alpha1ClusterCIDR",
         "responses": {
           "200": {
             "content": {
@@ -2299,7 +2339,7 @@
         "x-kubernetes-action": "watch",
         "x-kubernetes-group-version-kind": {
           "group": "networking.k8s.io",
-          "kind": "IPAddress",
+          "kind": "ClusterCIDR",
           "version": "v1alpha1"
         }
       },
@@ -2350,7 +2390,7 @@
           }
         },
         {
-          "description": "name of the IPAddress",
+          "description": "name of the ClusterCIDR",
           "in": "path",
           "name": "name",
           "required": true,
@@ -2360,7 +2400,7 @@
           }
         },
         {
-          "description": "If 'true', then the output is pretty printed. Defaults to 'false' unless the user-agent indicates a browser or command-line HTTP tool (curl and wget).",
+          "description": "If 'true', then the output is pretty printed.",
           "in": "query",
           "name": "pretty",
           "schema": {
@@ -2383,15 +2423,6 @@
           "name": "resourceVersionMatch",
           "schema": {
             "type": "string",
-            "uniqueItems": true
-          }
-        },
-        {
-          "description": "`sendInitialEvents=true` may be set together with `watch=true`. In that case, the watch stream will begin with synthetic events to produce the current state of objects in the collection. Once all such events have been sent, a synthetic \"Bookmark\" event  will be sent. The bookmark will report the ResourceVersion (RV) corresponding to the set of objects, and be marked with `\"k8s.io/initial-events-end\": \"true\"` annotation. Afterwards, the watch stream will proceed as usual, sending watch events corresponding to changes (subsequent to the RV) to objects watched.\n\nWhen `sendInitialEvents` option is set, we require `resourceVersionMatch` option to also be set. The semantic of the watch request is as following: - `resourceVersionMatch` = NotOlderThan\n  is interpreted as \"data at least as new as the provided `resourceVersion`\"\n  and the bookmark event is send when the state is synced\n  to a `resourceVersion` at least as fresh as the one provided by the ListOptions.\n  If `resourceVersion` is unset, this is interpreted as \"consistent read\" and the\n  bookmark event is send when the state is synced at least to the moment\n  when request started being processed.\n- `resourceVersionMatch` set to any other value or unset\n  Invalid error is returned.\n\nDefaults to true if `resourceVersion=\"\"` or `resourceVersion=\"0\"` (for backward compatibility reasons) and to false otherwise.",
-          "in": "query",
-          "name": "sendInitialEvents",
-          "schema": {
-            "type": "boolean",
             "uniqueItems": true
           }
         },

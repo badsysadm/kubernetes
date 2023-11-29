@@ -27,7 +27,6 @@ import (
 	"k8s.io/apiserver/pkg/storage/storagebackend"
 	utilopenapi "k8s.io/apiserver/pkg/util/openapi"
 	openapicommon "k8s.io/kube-openapi/pkg/common"
-	"k8s.io/kube-openapi/pkg/spec3"
 	"k8s.io/kube-openapi/pkg/validation/spec"
 	"k8s.io/kubernetes/pkg/api/legacyscheme"
 	"k8s.io/kubernetes/pkg/generated/openapi"
@@ -64,7 +63,7 @@ func DefaultOpenAPIConfig() *openapicommon.Config {
 }
 
 // DefaultOpenAPIV3Config returns an openapicommon.Config initialized to default values.
-func DefaultOpenAPIV3Config() *openapicommon.OpenAPIV3Config {
+func DefaultOpenAPIV3Config() *openapicommon.Config {
 	openAPIConfig := genericapiserver.DefaultOpenAPIV3Config(openapi.GetOpenAPIDefinitions, openapinamer.NewDefinitionNamer(legacyscheme.Scheme))
 	openAPIConfig.Info = &spec.Info{
 		InfoProps: spec.InfoProps{
@@ -72,8 +71,8 @@ func DefaultOpenAPIV3Config() *openapicommon.OpenAPIV3Config {
 			Version: "unversioned",
 		},
 	}
-	openAPIConfig.DefaultResponse = &spec3.Response{
-		ResponseProps: spec3.ResponseProps{
+	openAPIConfig.DefaultResponse = &spec.Response{
+		ResponseProps: spec.ResponseProps{
 			Description: "Default Response.",
 		},
 	}

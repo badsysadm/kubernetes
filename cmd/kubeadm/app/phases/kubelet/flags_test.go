@@ -27,25 +27,23 @@ import (
 	kubeadmapi "k8s.io/kubernetes/cmd/kubeadm/app/apis/kubeadm"
 )
 
-func TestBuildKubeletArgs(t *testing.T) {
+func TestBuildKubeletArgMap(t *testing.T) {
 	tests := []struct {
 		name     string
 		opts     kubeletFlagsOpts
-		expected []kubeadmapi.Arg
+		expected map[string]string
 	}{
 		{
 			name: "hostname override",
 			opts: kubeletFlagsOpts{
 				nodeRegOpts: &kubeadmapi.NodeRegistrationOptions{
-					CRISocket: "unix:///var/run/containerd/containerd.sock",
-					KubeletExtraArgs: []kubeadmapi.Arg{
-						{Name: "hostname-override", Value: "override-name"},
-					},
+					CRISocket:        "unix:///var/run/containerd/containerd.sock",
+					KubeletExtraArgs: map[string]string{"hostname-override": "override-name"},
 				},
 			},
-			expected: []kubeadmapi.Arg{
-				{Name: "container-runtime-endpoint", Value: "unix:///var/run/containerd/containerd.sock"},
-				{Name: "hostname-override", Value: "override-name"},
+			expected: map[string]string{
+				"container-runtime-endpoint": "unix:///var/run/containerd/containerd.sock",
+				"hostname-override":          "override-name",
 			},
 		},
 		{
@@ -68,9 +66,9 @@ func TestBuildKubeletArgs(t *testing.T) {
 				},
 				registerTaintsUsingFlags: true,
 			},
-			expected: []kubeadmapi.Arg{
-				{Name: "container-runtime-endpoint", Value: "unix:///var/run/containerd/containerd.sock"},
-				{Name: "register-with-taints", Value: "foo=bar:baz,key=val:eff"},
+			expected: map[string]string{
+				"container-runtime-endpoint": "unix:///var/run/containerd/containerd.sock",
+				"register-with-taints":       "foo=bar:baz,key=val:eff",
 			},
 		},
 		{
@@ -81,19 +79,19 @@ func TestBuildKubeletArgs(t *testing.T) {
 				},
 				pauseImage: "registry.k8s.io/pause:3.9",
 			},
-			expected: []kubeadmapi.Arg{
-				{Name: "container-runtime-endpoint", Value: "unix:///var/run/containerd/containerd.sock"},
-				{Name: "pod-infra-container-image", Value: "registry.k8s.io/pause:3.9"},
+			expected: map[string]string{
+				"container-runtime-endpoint": "unix:///var/run/containerd/containerd.sock",
+				"pod-infra-container-image":  "registry.k8s.io/pause:3.9",
 			},
 		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			actual := buildKubeletArgs(test.opts)
+			actual := buildKubeletArgMap(test.opts)
 			if !reflect.DeepEqual(actual, test.expected) {
 				t.Errorf(
-					"failed buildKubeletArgs:\n\texpected: %v\n\t  actual: %v",
+					"failed buildKubeletArgMap:\n\texpected: %v\n\t  actual: %v",
 					test.expected,
 					actual,
 				)
@@ -118,9 +116,7 @@ func TestGetNodeNameAndHostname(t *testing.T) {
 			name: "overridden hostname",
 			opts: kubeletFlagsOpts{
 				nodeRegOpts: &kubeadmapi.NodeRegistrationOptions{
-					KubeletExtraArgs: []kubeadmapi.Arg{
-						{Name: "hostname-override", Value: "override-name"},
-					},
+					KubeletExtraArgs: map[string]string{"hostname-override": "override-name"},
 				},
 			},
 			expectedNodeName: "override-name",
@@ -130,9 +126,7 @@ func TestGetNodeNameAndHostname(t *testing.T) {
 			name: "overridden hostname uppercase",
 			opts: kubeletFlagsOpts{
 				nodeRegOpts: &kubeadmapi.NodeRegistrationOptions{
-					KubeletExtraArgs: []kubeadmapi.Arg{
-						{Name: "hostname-override", Value: "OVERRIDE-NAME"},
-					},
+					KubeletExtraArgs: map[string]string{"hostname-override": "OVERRIDE-NAME"},
 				},
 			},
 			expectedNodeName: "OVERRIDE-NAME",
@@ -142,9 +136,7 @@ func TestGetNodeNameAndHostname(t *testing.T) {
 			name: "hostname contains only spaces",
 			opts: kubeletFlagsOpts{
 				nodeRegOpts: &kubeadmapi.NodeRegistrationOptions{
-					KubeletExtraArgs: []kubeadmapi.Arg{
-						{Name: "hostname-override", Value: " "},
-					},
+					KubeletExtraArgs: map[string]string{"hostname-override": " "},
 				},
 			},
 			expectedNodeName: " ",
@@ -154,9 +146,7 @@ func TestGetNodeNameAndHostname(t *testing.T) {
 			name: "empty parameter",
 			opts: kubeletFlagsOpts{
 				nodeRegOpts: &kubeadmapi.NodeRegistrationOptions{
-					KubeletExtraArgs: []kubeadmapi.Arg{
-						{Name: "hostname-override", Value: ""},
-					},
+					KubeletExtraArgs: map[string]string{"hostname-override": ""},
 				},
 			},
 			expectedNodeName: "",

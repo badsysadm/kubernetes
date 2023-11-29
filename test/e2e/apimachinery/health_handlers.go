@@ -43,8 +43,6 @@ var (
 		"[+]poststarthook/start-apiextensions-controllers ok",
 		"[+]poststarthook/crd-informer-synced ok",
 		"[+]poststarthook/bootstrap-controller ok",
-		"[+]poststarthook/start-system-namespaces-controller ok",
-		"[+]poststarthook/start-service-ip-repair-controllers ok",
 		"[+]poststarthook/scheduling/bootstrap-system-priority-classes ok",
 		"[+]poststarthook/start-cluster-authentication-info-controller ok",
 		"[+]poststarthook/start-kube-aggregator-informers ok",
@@ -64,8 +62,6 @@ var (
 		"[+]poststarthook/start-apiextensions-controllers ok",
 		"[+]poststarthook/crd-informer-synced ok",
 		"[+]poststarthook/bootstrap-controller ok",
-		"[+]poststarthook/start-system-namespaces-controller ok",
-		"[+]poststarthook/start-service-ip-repair-controllers ok",
 		"[+]poststarthook/scheduling/bootstrap-system-priority-classes ok",
 		"[+]poststarthook/start-cluster-authentication-info-controller ok",
 		"[+]poststarthook/start-kube-aggregator-informers ok",
@@ -86,8 +82,6 @@ var (
 		"[+]poststarthook/start-apiextensions-controllers ok",
 		"[+]poststarthook/crd-informer-synced ok",
 		"[+]poststarthook/bootstrap-controller ok",
-		"[+]poststarthook/start-system-namespaces-controller ok",
-		"[+]poststarthook/start-service-ip-repair-controllers ok",
 		"[+]poststarthook/scheduling/bootstrap-system-priority-classes ok",
 		"[+]poststarthook/start-cluster-authentication-info-controller ok",
 		"[+]poststarthook/start-kube-aggregator-informers ok",
@@ -99,10 +93,10 @@ var (
 	)
 )
 
-func testPath(ctx context.Context, client clientset.Interface, path string, requiredChecks sets.String) error {
+func testPath(client clientset.Interface, path string, requiredChecks sets.String) error {
 	var result restclient.Result
 	err := wait.Poll(100*time.Millisecond, 30*time.Second, func() (bool, error) {
-		result = client.CoreV1().RESTClient().Get().RequestURI(path).Do(ctx)
+		result = client.CoreV1().RESTClient().Get().RequestURI(path).Do(context.TODO())
 		status := 0
 		result.StatusCode(&status)
 		return status == 200, nil
@@ -123,19 +117,19 @@ func testPath(ctx context.Context, client clientset.Interface, path string, requ
 
 var _ = SIGDescribe("health handlers", func() {
 	f := framework.NewDefaultFramework("health")
-	f.NamespacePodSecurityLevel = admissionapi.LevelPrivileged
+	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 
-	ginkgo.It("should contain necessary checks", func(ctx context.Context) {
+	ginkgo.It("should contain necessary checks", func() {
 		ginkgo.By("/health")
-		err := testPath(ctx, f.ClientSet, "/healthz?verbose=1", requiredHealthzChecks)
+		err := testPath(f.ClientSet, "/healthz?verbose=1", requiredHealthzChecks)
 		framework.ExpectNoError(err)
 
 		ginkgo.By("/livez")
-		err = testPath(ctx, f.ClientSet, "/livez?verbose=1", requiredLivezChecks)
+		err = testPath(f.ClientSet, "/livez?verbose=1", requiredLivezChecks)
 		framework.ExpectNoError(err)
 
 		ginkgo.By("/readyz")
-		err = testPath(ctx, f.ClientSet, "/readyz?verbose=1", requiredReadyzChecks)
+		err = testPath(f.ClientSet, "/readyz?verbose=1", requiredReadyzChecks)
 		framework.ExpectNoError(err)
 	})
 })

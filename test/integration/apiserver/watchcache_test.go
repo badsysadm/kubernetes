@@ -19,7 +19,6 @@ package apiserver
 import (
 	"context"
 	"fmt"
-	"sync"
 	"testing"
 	"time"
 
@@ -31,19 +30,18 @@ import (
 	"k8s.io/kubernetes/pkg/controlplane"
 	"k8s.io/kubernetes/pkg/controlplane/reconcilers"
 	"k8s.io/kubernetes/test/integration/framework"
-	"k8s.io/kubernetes/test/utils/ktesting"
 )
 
 // setup create kube-apiserver backed up by two separate etcds,
 // with one of them containing events and the other all other objects.
-func multiEtcdSetup(ctx context.Context, t *testing.T) (clientset.Interface, framework.TearDownFunc) {
+func multiEtcdSetup(t *testing.T) (clientset.Interface, framework.TearDownFunc) {
 	etcdArgs := []string{"--experimental-watch-progress-notify-interval", "1s"}
-	etcd0URL, stopEtcd0, err := framework.RunCustomEtcd("etcd_watchcache0", etcdArgs, nil)
+	etcd0URL, stopEtcd0, err := framework.RunCustomEtcd("etcd_watchcache0", etcdArgs)
 	if err != nil {
 		t.Fatalf("Couldn't start etcd: %v", err)
 	}
 
-	etcd1URL, stopEtcd1, err := framework.RunCustomEtcd("etcd_watchcache1", etcdArgs, nil)
+	etcd1URL, stopEtcd1, err := framework.RunCustomEtcd("etcd_watchcache1", etcdArgs)
 	if err != nil {
 		t.Fatalf("Couldn't start etcd: %v", err)
 	}
@@ -54,7 +52,7 @@ func multiEtcdSetup(ctx context.Context, t *testing.T) (clientset.Interface, fra
 	etcdOptions.EtcdServersOverrides = []string{fmt.Sprintf("/events#%s", etcd1URL)}
 	etcdOptions.EnableWatchCache = true
 
-	clientSet, _, tearDownFn := framework.StartTestServer(ctx, t, framework.TestServerSetup{
+	clientSet, _, tearDownFn := framework.StartTestServer(t, framework.TestServerSetup{
 		ModifyServerRunOptions: func(opts *options.ServerRunOptions) {
 			// Ensure we're using the same etcd across apiserver restarts.
 			opts.Etcd = etcdOptions
@@ -75,6 +73,7 @@ func multiEtcdSetup(ctx context.Context, t *testing.T) (clientset.Interface, fra
 	// Everything but default service creation is checked in StartTestServer above by
 	// waiting for post start hooks, so we just wait for default service to exist.
 	// TODO(wojtek-t): Figure out less fragile way.
+	ctx := context.Background()
 	if err := wait.Poll(100*time.Millisecond, wait.ForeverTestTimeout, func() (bool, error) {
 		_, err := clientSet.CoreV1().Services("default").Get(ctx, "kubernetes", metav1.GetOptions{})
 		return err == nil, nil
@@ -85,12 +84,10 @@ func multiEtcdSetup(ctx context.Context, t *testing.T) (clientset.Interface, fra
 }
 
 func TestWatchCacheUpdatedByEtcd(t *testing.T) {
-	_, ctx := ktesting.NewTestContext(t)
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
-	c, closeFn := multiEtcdSetup(ctx, t)
+	c, closeFn := multiEtcdSetup(t)
 	defer closeFn()
+
+	ctx := context.Background()
 
 	makeConfigMap := func(name string) *v1.ConfigMap {
 		return &v1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: name}}
@@ -165,72 +162,5 @@ func TestWatchCacheUpdatedByEtcd(t *testing.T) {
 		return res.ResourceVersion == se.ResourceVersion, nil
 	}); err == nil || err != wait.ErrWaitTimeout {
 		t.Errorf("Events watchcache unexpected synced: %v", err)
-	}
-}
-
-func BenchmarkListFromWatchCache(b *testing.B) {
-	_, ctx := ktesting.NewTestContext(b)
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
-	c, _, tearDownFn := framework.StartTestServer(ctx, b, framework.TestServerSetup{
-		ModifyServerConfig: func(config *controlplane.Config) {
-			// Switch off endpoints reconciler to avoid unnecessary operations.
-			config.ExtraConfig.EndpointReconcilerType = reconcilers.NoneEndpointReconcilerType
-		},
-	})
-	defer tearDownFn()
-
-	namespaces, secretsPerNamespace := 100, 1000
-	wg := sync.WaitGroup{}
-
-	errCh := make(chan error, namespaces)
-	for i := 0; i < namespaces; i++ {
-		wg.Add(1)
-		index := i
-		go func() {
-			defer wg.Done()
-
-			ns := &v1.Namespace{
-				ObjectMeta: metav1.ObjectMeta{Name: fmt.Sprintf("namespace-%d", index)},
-			}
-			ns, err := c.CoreV1().Namespaces().Create(ctx, ns, metav1.CreateOptions{})
-			if err != nil {
-				errCh <- err
-				return
-			}
-
-			for j := 0; j < secretsPerNamespace; j++ {
-				secret := &v1.Secret{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: fmt.Sprintf("secret-%d", j),
-					},
-				}
-				_, err := c.CoreV1().Secrets(ns.Name).Create(ctx, secret, metav1.CreateOptions{})
-				if err != nil {
-					errCh <- err
-					return
-				}
-			}
-		}()
-	}
-
-	wg.Wait()
-	close(errCh)
-	for err := range errCh {
-		b.Error(err)
-	}
-
-	b.ResetTimer()
-
-	opts := metav1.ListOptions{
-		ResourceVersion: "0",
-	}
-	for i := 0; i < b.N; i++ {
-		secrets, err := c.CoreV1().Secrets("").List(ctx, opts)
-		if err != nil {
-			b.Errorf("failed to list secrets: %v", err)
-		}
-		b.Logf("Number of secrets: %d", len(secrets.Items))
 	}
 }

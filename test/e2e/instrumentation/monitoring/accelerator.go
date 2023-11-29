@@ -54,17 +54,18 @@ var _ = instrumentation.SIGDescribe("Stackdriver Monitoring", func() {
 	})
 
 	f := framework.NewDefaultFramework("stackdriver-monitoring")
-	f.NamespacePodSecurityLevel = admissionapi.LevelPrivileged
+	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 
-	ginkgo.It("should have accelerator metrics [Feature:StackdriverAcceleratorMonitoring]", func(ctx context.Context) {
-		testStackdriverAcceleratorMonitoring(ctx, f)
+	ginkgo.It("should have accelerator metrics [Feature:StackdriverAcceleratorMonitoring]", func() {
+		testStackdriverAcceleratorMonitoring(f)
 	})
 
 })
 
-func testStackdriverAcceleratorMonitoring(ctx context.Context, f *framework.Framework) {
+func testStackdriverAcceleratorMonitoring(f *framework.Framework) {
 	projectID := framework.TestContext.CloudConfig.ProjectID
 
+	ctx := context.Background()
 	client, err := google.DefaultClient(ctx, gcm.CloudPlatformScope)
 	framework.ExpectNoError(err)
 
@@ -79,9 +80,9 @@ func testStackdriverAcceleratorMonitoring(ctx context.Context, f *framework.Fram
 		gcmService.BasePath = basePathOverride
 	}
 
-	scheduling.SetupNVIDIAGPUNode(ctx, f, false)
+	scheduling.SetupNVIDIAGPUNode(f, false)
 
-	e2epod.NewPodClient(f).Create(ctx, &v1.Pod{
+	e2epod.NewPodClient(f).Create(&v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: rcName,
 		},

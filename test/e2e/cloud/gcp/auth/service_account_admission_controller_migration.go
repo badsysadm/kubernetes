@@ -17,8 +17,6 @@ limitations under the License.
 package auth
 
 import (
-	"context"
-
 	"k8s.io/kubernetes/test/e2e/cloud/gcp/common"
 	"k8s.io/kubernetes/test/e2e/framework"
 	"k8s.io/kubernetes/test/e2e/upgrades"
@@ -35,11 +33,11 @@ var upgradeTests = []upgrades.Test{
 
 var _ = SIGDescribe("ServiceAccount admission controller migration [Feature:BoundServiceAccountTokenVolume]", func() {
 	f := framework.NewDefaultFramework("serviceaccount-admission-controller-migration")
-	f.NamespacePodSecurityLevel = admissionapi.LevelPrivileged
+	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	testFrameworks := upgrades.CreateUpgradeFrameworks(upgradeTests)
 
 	ginkgo.Describe("master upgrade", func() {
-		ginkgo.It("should maintain a functioning cluster", func(ctx context.Context) {
+		ginkgo.It("should maintain a functioning cluster", func() {
 			upgCtx, err := common.GetUpgradeContext(f.ClientSet.Discovery())
 			framework.ExpectNoError(err)
 
@@ -51,7 +49,7 @@ var _ = SIGDescribe("ServiceAccount admission controller migration [Feature:Boun
 			testSuite.TestCases = append(testSuite.TestCases, serviceaccountAdmissionControllerMigrationTest)
 
 			upgradeFunc := common.ControlPlaneUpgradeFunc(f, upgCtx, serviceaccountAdmissionControllerMigrationTest, nil)
-			upgrades.RunUpgradeSuite(ctx, upgCtx, upgradeTests, testFrameworks, testSuite, upgrades.MasterUpgrade, upgradeFunc)
+			upgrades.RunUpgradeSuite(upgCtx, upgradeTests, testFrameworks, testSuite, upgrades.MasterUpgrade, upgradeFunc)
 		})
 	})
 })

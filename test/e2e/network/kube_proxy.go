@@ -17,7 +17,6 @@ limitations under the License.
 package network
 
 import (
-	"context"
 	"fmt"
 	"math"
 	"net"
@@ -40,7 +39,6 @@ import (
 	netutils "k8s.io/utils/net"
 
 	"github.com/onsi/ginkgo/v2"
-	"github.com/onsi/gomega"
 )
 
 var kubeProxyE2eImage = imageutils.GetE2EImage(imageutils.Agnhost)
@@ -52,10 +50,10 @@ var _ = common.SIGDescribe("KubeProxy", func() {
 	)
 
 	fr := framework.NewDefaultFramework("kube-proxy")
-	fr.NamespacePodSecurityLevel = admissionapi.LevelPrivileged
+	fr.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 
-	ginkgo.It("should set TCP CLOSE_WAIT timeout [Privileged]", func(ctx context.Context) {
-		nodes, err := e2enode.GetBoundedReadySchedulableNodes(ctx, fr.ClientSet, 2)
+	ginkgo.It("should set TCP CLOSE_WAIT timeout [Privileged]", func() {
+		nodes, err := e2enode.GetBoundedReadySchedulableNodes(fr.ClientSet, 2)
 		framework.ExpectNoError(err)
 		if len(nodes.Items) < 2 {
 			e2eskipper.Skipf(
@@ -77,7 +75,7 @@ var _ = common.SIGDescribe("KubeProxy", func() {
 		}
 
 		ips := e2enode.GetAddressesByTypeAndFamily(&nodes.Items[0], v1.NodeInternalIP, family)
-		gomega.Expect(ips).ToNot(gomega.BeEmpty())
+		framework.ExpectNotEqual(len(ips), 0)
 
 		clientNodeInfo := NodeInfo{
 			node:   &nodes.Items[0],
@@ -86,7 +84,7 @@ var _ = common.SIGDescribe("KubeProxy", func() {
 		}
 
 		ips = e2enode.GetAddressesByTypeAndFamily(&nodes.Items[1], v1.NodeInternalIP, family)
-		gomega.Expect(ips).ToNot(gomega.BeEmpty())
+		framework.ExpectNotEqual(len(ips), 0)
 
 		serverNodeInfo := NodeInfo{
 			node:   &nodes.Items[1],
@@ -119,7 +117,7 @@ var _ = common.SIGDescribe("KubeProxy", func() {
 				},
 			},
 		}
-		e2epod.NewPodClient(fr).CreateSync(ctx, hostExecPod)
+		e2epod.NewPodClient(fr).CreateSync(hostExecPod)
 
 		// Create the client and server pods
 		clientPodSpec := &v1.Pod{
@@ -187,10 +185,10 @@ var _ = common.SIGDescribe("KubeProxy", func() {
 			serverNodeInfo.name,
 			serverNodeInfo.nodeIP,
 			kubeProxyE2eImage))
-		e2epod.NewPodClient(fr).CreateSync(ctx, serverPodSpec)
+		e2epod.NewPodClient(fr).CreateSync(serverPodSpec)
 
 		// The server should be listening before spawning the client pod
-		if readyErr := e2epod.WaitTimeoutForPodReadyInNamespace(ctx, fr.ClientSet, serverPodSpec.Name, fr.Namespace.Name, framework.PodStartTimeout); readyErr != nil {
+		if readyErr := e2epod.WaitTimeoutForPodReadyInNamespace(fr.ClientSet, serverPodSpec.Name, fr.Namespace.Name, framework.PodStartTimeout); readyErr != nil {
 			framework.Failf("error waiting for server pod %s to be ready: %v", serverPodSpec.Name, readyErr)
 		}
 		// Connect to the server and leak the connection
@@ -199,7 +197,7 @@ var _ = common.SIGDescribe("KubeProxy", func() {
 			clientNodeInfo.name,
 			clientNodeInfo.nodeIP,
 			kubeProxyE2eImage))
-		e2epod.NewPodClient(fr).CreateSync(ctx, clientPodSpec)
+		e2epod.NewPodClient(fr).CreateSync(clientPodSpec)
 
 		ginkgo.By("Checking conntrack entries for the timeout")
 		// These must be synchronized from the default values set in
@@ -234,7 +232,7 @@ var _ = common.SIGDescribe("KubeProxy", func() {
 			}
 			timeoutSeconds, err := strconv.Atoi(line[2])
 			if err != nil {
-				return false, fmt.Errorf("failed to convert matched timeout %s to integer: %w", line[2], err)
+				return false, fmt.Errorf("failed to convert matched timeout %s to integer: %v", line[2], err)
 			}
 			if math.Abs(float64(timeoutSeconds-expectedTimeoutSeconds)) < epsilonSeconds {
 				return true, nil

@@ -21,7 +21,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/distribution/reference"
+	"github.com/docker/distribution/reference"
 	"github.com/spf13/cobra"
 	"k8s.io/klog/v2"
 
@@ -35,7 +35,6 @@ import (
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
-	"k8s.io/cli-runtime/pkg/genericiooptions"
 	"k8s.io/cli-runtime/pkg/resource"
 	"k8s.io/client-go/kubernetes"
 	corev1client "k8s.io/client-go/kubernetes/typed/core/v1"
@@ -110,6 +109,7 @@ type RunOptions struct {
 	DeleteOptions *cmddelete.DeleteOptions
 
 	DryRunStrategy cmdutil.DryRunStrategy
+	DryRunVerifier *resource.QueryParamVerifier
 
 	PrintObj func(runtime.Object) error
 	Recorder genericclioptions.Recorder
@@ -129,10 +129,10 @@ type RunOptions struct {
 	Namespace        string
 	EnforceNamespace bool
 
-	genericiooptions.IOStreams
+	genericclioptions.IOStreams
 }
 
-func NewRunOptions(streams genericiooptions.IOStreams) *RunOptions {
+func NewRunOptions(streams genericclioptions.IOStreams) *RunOptions {
 	return &RunOptions{
 		PrintFlags:  genericclioptions.NewPrintFlags("created").WithTypeSetter(scheme.Scheme),
 		DeleteFlags: cmddelete.NewDeleteFlags("to use to replace the resource."),
@@ -144,7 +144,7 @@ func NewRunOptions(streams genericiooptions.IOStreams) *RunOptions {
 	}
 }
 
-func NewCmdRun(f cmdutil.Factory, streams genericiooptions.IOStreams) *cobra.Command {
+func NewCmdRun(f cmdutil.Factory, streams genericclioptions.IOStreams) *cobra.Command {
 	o := NewRunOptions(streams)
 
 	cmd := &cobra.Command{
@@ -227,6 +227,7 @@ func (o *RunOptions) Complete(f cmdutil.Factory, cmd *cobra.Command) error {
 	if err != nil {
 		return err
 	}
+	o.DryRunVerifier = resource.NewQueryParamVerifier(dynamicClient, f.OpenAPIGetter(), resource.QueryParamDryRun)
 
 	attachFlag := cmd.Flags().Lookup("attach")
 	if !attachFlag.Changed && o.Interactive {
@@ -649,6 +650,11 @@ func (o *RunOptions) createGeneratedObject(f cmdutil.Factory, cmd *cobra.Command
 		client, err := f.ClientForMapping(mapping)
 		if err != nil {
 			return nil, err
+		}
+		if o.DryRunStrategy == cmdutil.DryRunServer {
+			if err := o.DryRunVerifier.HasSupport(mapping.GroupVersionKind); err != nil {
+				return nil, err
+			}
 		}
 		actualObj, err = resource.
 			NewHelper(client, mapping).

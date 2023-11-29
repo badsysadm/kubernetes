@@ -61,6 +61,7 @@ apiVersion: %s
 kind: InitConfiguration
 nodeRegistration:
   name: foo
+  criSocket: ""
 localAPIEndpoint:
   advertiseAddress: 192.168.2.2
   bindPort: 6443
@@ -250,16 +251,8 @@ func (c fakeTLSEtcdClient) ListMembers() ([]etcdutil.Member, error) {
 	return []etcdutil.Member{}, nil
 }
 
-func (c fakeTLSEtcdClient) AddMemberAsLearner(name string, peerAddrs string) ([]etcdutil.Member, error) {
-	return []etcdutil.Member{}, nil
-}
-
 func (c fakeTLSEtcdClient) AddMember(name string, peerAddrs string) ([]etcdutil.Member, error) {
 	return []etcdutil.Member{}, nil
-}
-
-func (c fakeTLSEtcdClient) MemberPromote(learnerID uint64) error {
-	return nil
 }
 
 func (c fakeTLSEtcdClient) GetMemberID(peerURL string) (uint64, error) {
@@ -293,16 +286,8 @@ func (c fakePodManifestEtcdClient) ListMembers() ([]etcdutil.Member, error) {
 	return []etcdutil.Member{}, nil
 }
 
-func (c fakePodManifestEtcdClient) AddMemberAsLearner(name string, peerAddrs string) ([]etcdutil.Member, error) {
-	return []etcdutil.Member{}, nil
-}
-
 func (c fakePodManifestEtcdClient) AddMember(name string, peerAddrs string) ([]etcdutil.Member, error) {
 	return []etcdutil.Member{}, nil
-}
-
-func (c fakePodManifestEtcdClient) MemberPromote(learnerID uint64) error {
-	return nil
 }
 
 func (c fakePodManifestEtcdClient) GetMemberID(peerURL string) (uint64, error) {
@@ -329,7 +314,9 @@ func TestStaticPodControlPlane(t *testing.T) {
 				waitForHashChange:    nil,
 				waitForPodsWithLabel: nil,
 			},
-			moveFileFunc:         os.Rename,
+			moveFileFunc: func(oldPath, newPath string) error {
+				return os.Rename(oldPath, newPath)
+			},
 			expectedErr:          false,
 			manifestShouldChange: true,
 		},
@@ -340,7 +327,9 @@ func TestStaticPodControlPlane(t *testing.T) {
 				waitForHashChange:    nil,
 				waitForPodsWithLabel: nil,
 			},
-			moveFileFunc:         os.Rename,
+			moveFileFunc: func(oldPath, newPath string) error {
+				return os.Rename(oldPath, newPath)
+			},
 			expectedErr:          true,
 			manifestShouldChange: false,
 		},
@@ -351,7 +340,9 @@ func TestStaticPodControlPlane(t *testing.T) {
 				waitForHashChange:    errors.New("boo! failed"),
 				waitForPodsWithLabel: nil,
 			},
-			moveFileFunc:         os.Rename,
+			moveFileFunc: func(oldPath, newPath string) error {
+				return os.Rename(oldPath, newPath)
+			},
 			expectedErr:          true,
 			manifestShouldChange: false,
 		},
@@ -362,7 +353,9 @@ func TestStaticPodControlPlane(t *testing.T) {
 				waitForHashChange:    nil,
 				waitForPodsWithLabel: errors.New("boo! failed"),
 			},
-			moveFileFunc:         os.Rename,
+			moveFileFunc: func(oldPath, newPath string) error {
+				return os.Rename(oldPath, newPath)
+			},
 			expectedErr:          true,
 			manifestShouldChange: false,
 		},
@@ -424,7 +417,9 @@ func TestStaticPodControlPlane(t *testing.T) {
 				waitForHashChange:    nil,
 				waitForPodsWithLabel: nil,
 			},
-			moveFileFunc:         os.Rename,
+			moveFileFunc: func(oldPath, newPath string) error {
+				return os.Rename(oldPath, newPath)
+			},
 			skipKubeConfig:       constants.SchedulerKubeConfigFileName,
 			expectedErr:          true,
 			manifestShouldChange: false,
@@ -436,33 +431,12 @@ func TestStaticPodControlPlane(t *testing.T) {
 				waitForHashChange:    nil,
 				waitForPodsWithLabel: nil,
 			},
-			moveFileFunc:         os.Rename,
+			moveFileFunc: func(oldPath, newPath string) error {
+				return os.Rename(oldPath, newPath)
+			},
 			skipKubeConfig:       constants.AdminKubeConfigFileName,
 			expectedErr:          true,
 			manifestShouldChange: false,
-		},
-		{
-			description: "super-admin.conf is renewed if it exists",
-			waitErrsToReturn: map[string]error{
-				waitForHashes:        nil,
-				waitForHashChange:    nil,
-				waitForPodsWithLabel: nil,
-			},
-			moveFileFunc:         os.Rename,
-			expectedErr:          false,
-			manifestShouldChange: true,
-		},
-		{
-			description: "no error is thrown if super-admin.conf does not exist",
-			waitErrsToReturn: map[string]error{
-				waitForHashes:        nil,
-				waitForHashChange:    nil,
-				waitForPodsWithLabel: nil,
-			},
-			moveFileFunc:         os.Rename,
-			skipKubeConfig:       constants.SuperAdminKubeConfigFileName,
-			expectedErr:          false,
-			manifestShouldChange: true,
 		},
 	}
 
@@ -505,7 +479,6 @@ func TestStaticPodControlPlane(t *testing.T) {
 
 			for _, kubeConfig := range []string{
 				constants.AdminKubeConfigFileName,
-				constants.SuperAdminKubeConfigFileName,
 				constants.SchedulerKubeConfigFileName,
 				constants.ControllerManagerKubeConfigFileName,
 			} {
@@ -611,7 +584,7 @@ func getConfig(version, certsDir, etcdDataDir string) (*kubeadmapi.InitConfigura
 	configBytes := []byte(fmt.Sprintf(testConfiguration, certsDir, etcdDataDir, version))
 
 	// Unmarshal the config
-	return configutil.BytesToInitConfiguration(configBytes, true /* skipCRIDetect */)
+	return configutil.BytesToInitConfiguration(configBytes)
 }
 
 func getTempDir(t *testing.T, name string) (string, func()) {

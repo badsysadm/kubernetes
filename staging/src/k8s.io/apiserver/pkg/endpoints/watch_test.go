@@ -32,7 +32,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/go-cmp/cmp"
 	"golang.org/x/net/websocket"
 	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -42,6 +41,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/runtime/serializer/streaming"
+	"k8s.io/apimachinery/pkg/util/diff"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/apimachinery/pkg/watch"
 	example "k8s.io/apiserver/pkg/apis/example"
@@ -397,7 +397,7 @@ func TestWatchRead(t *testing.T) {
 						t.Fatalf("%s: Decode error: %v", name, err)
 					}
 					if e, a := object, gotObj; !apiequality.Semantic.DeepEqual(e, a) {
-						t.Errorf("%s: different: %s", name, cmp.Diff(e, a))
+						t.Errorf("%s: different: %s", name, diff.ObjectDiff(e, a))
 					}
 				}
 				w.Stop()
@@ -647,6 +647,7 @@ func TestWatchHTTPErrors(t *testing.T) {
 		Encoder:         newCodec,
 		EmbeddedEncoder: newCodec,
 
+		Fixup:          func(obj runtime.Object) runtime.Object { return obj },
 		TimeoutFactory: &fakeTimeoutFactory{timeoutCh, done},
 	}
 
@@ -711,6 +712,7 @@ func TestWatchHTTPErrorsBeforeServe(t *testing.T) {
 		Encoder:         newCodec,
 		EmbeddedEncoder: newCodec,
 
+		Fixup:          func(obj runtime.Object) runtime.Object { return obj },
 		TimeoutFactory: &fakeTimeoutFactory{timeoutCh, done},
 	}
 
@@ -769,6 +771,7 @@ func TestWatchHTTPDynamicClientErrors(t *testing.T) {
 		Encoder:         newCodec,
 		EmbeddedEncoder: newCodec,
 
+		Fixup:          func(obj runtime.Object) runtime.Object { return obj },
 		TimeoutFactory: &fakeTimeoutFactory{timeoutCh, done},
 	}
 
@@ -811,6 +814,7 @@ func TestWatchHTTPTimeout(t *testing.T) {
 		Encoder:         newCodec,
 		EmbeddedEncoder: newCodec,
 
+		Fixup:          func(obj runtime.Object) runtime.Object { return obj },
 		TimeoutFactory: &fakeTimeoutFactory{timeoutCh, done},
 	}
 

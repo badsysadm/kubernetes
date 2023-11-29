@@ -18,21 +18,15 @@ package volumezone
 
 import (
 	"context"
-	"fmt"
+	"reflect"
 	"testing"
 
-	"github.com/google/go-cmp/cmp"
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/klog/v2/ktesting"
-	"k8s.io/kubernetes/pkg/scheduler/apis/config"
 	"k8s.io/kubernetes/pkg/scheduler/framework"
-	plugintesting "k8s.io/kubernetes/pkg/scheduler/framework/plugins/testing"
-	"k8s.io/kubernetes/pkg/scheduler/internal/cache"
+	fakeframework "k8s.io/kubernetes/pkg/scheduler/framework/fake"
 	st "k8s.io/kubernetes/pkg/scheduler/testing"
-	tf "k8s.io/kubernetes/pkg/scheduler/testing/framework"
 )
 
 func createPodWithVolume(pod, pv, pvc string) *v1.Pod {
@@ -40,7 +34,7 @@ func createPodWithVolume(pod, pv, pvc string) *v1.Pod {
 }
 
 func TestSingleZone(t *testing.T) {
-	pvLister := tf.PersistentVolumeLister{
+	pvLister := fakeframework.PersistentVolumeLister{
 		{
 			ObjectMeta: metav1.ObjectMeta{Name: "Vol_1", Labels: map[string]string{v1.LabelFailureDomainBetaZone: "us-west1-a"}},
 		},
@@ -56,12 +50,9 @@ func TestSingleZone(t *testing.T) {
 		{
 			ObjectMeta: metav1.ObjectMeta{Name: "Vol_Stable_2", Labels: map[string]string{v1.LabelTopologyRegion: "us-west1", "uselessLabel": "none"}},
 		},
-		{
-			ObjectMeta: metav1.ObjectMeta{Name: "Vol_Stable_3", Labels: map[string]string{v1.LabelTopologyZone: "us-west1-a", v1.LabelTopologyRegion: "us-west1-a"}},
-		},
 	}
 
-	pvcLister := tf.PersistentVolumeClaimLister{
+	pvcLister := fakeframework.PersistentVolumeClaimLister{
 		{
 			ObjectMeta: metav1.ObjectMeta{Name: "PVC_1", Namespace: "default"},
 			Spec:       v1.PersistentVolumeClaimSpec{VolumeName: "Vol_1"},
@@ -86,18 +77,13 @@ func TestSingleZone(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{Name: "PVC_Stable_2", Namespace: "default"},
 			Spec:       v1.PersistentVolumeClaimSpec{VolumeName: "Vol_Stable_2"},
 		},
-		{
-			ObjectMeta: metav1.ObjectMeta{Name: "PVC_Stable_3", Namespace: "default"},
-			Spec:       v1.PersistentVolumeClaimSpec{VolumeName: "Vol_Stable_3"},
-		},
 	}
 
 	tests := []struct {
-		name                string
-		Pod                 *v1.Pod
-		Node                *v1.Node
-		wantPreFilterStatus *framework.Status
-		wantFilterStatus    *framework.Status
+		name       string
+		Pod        *v1.Pod
+		Node       *v1.Node
+		wantStatus *framework.Status
 	}{
 		{
 			name: "pod without volume",
@@ -108,7 +94,6 @@ func TestSingleZone(t *testing.T) {
 					Labels: map[string]string{v1.LabelFailureDomainBetaZone: "us-west1-a"},
 				},
 			},
-			wantPreFilterStatus: framework.NewStatus(framework.Skip),
 		},
 		{
 			name: "node without labels",
@@ -148,7 +133,7 @@ func TestSingleZone(t *testing.T) {
 					Labels: map[string]string{v1.LabelFailureDomainBetaRegion: "no_us-west1", "uselessLabel": "none"},
 				},
 			},
-			wantFilterStatus: framework.NewStatus(framework.UnschedulableAndUnresolvable, ErrReasonConflict),
+			wantStatus: framework.NewStatus(framework.UnschedulableAndUnresolvable, ErrReasonConflict),
 		},
 		{
 			name: "beta zone label doesn't match",
@@ -159,7 +144,7 @@ func TestSingleZone(t *testing.T) {
 					Labels: map[string]string{v1.LabelFailureDomainBetaZone: "no_us-west1-a", "uselessLabel": "none"},
 				},
 			},
-			wantFilterStatus: framework.NewStatus(framework.UnschedulableAndUnresolvable, ErrReasonConflict),
+			wantStatus: framework.NewStatus(framework.UnschedulableAndUnresolvable, ErrReasonConflict),
 		},
 		{
 			name: "zone label matched",
@@ -190,7 +175,7 @@ func TestSingleZone(t *testing.T) {
 					Labels: map[string]string{v1.LabelTopologyRegion: "no_us-west1", "uselessLabel": "none"},
 				},
 			},
-			wantFilterStatus: framework.NewStatus(framework.UnschedulableAndUnresolvable, ErrReasonConflict),
+			wantStatus: framework.NewStatus(framework.UnschedulableAndUnresolvable, ErrReasonConflict),
 		},
 		{
 			name: "zone label doesn't match",
@@ -201,68 +186,12 @@ func TestSingleZone(t *testing.T) {
 					Labels: map[string]string{v1.LabelTopologyZone: "no_us-west1-a", "uselessLabel": "none"},
 				},
 			},
-			wantFilterStatus: framework.NewStatus(framework.UnschedulableAndUnresolvable, ErrReasonConflict),
-		},
-		{
-			name: "pv with zone and region, node with only zone",
-			Pod:  createPodWithVolume("pod_1", "Vol_Stable_3", "PVC_Stable_3"),
-			Node: &v1.Node{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "host1",
-					Labels: map[string]string{
-						v1.LabelTopologyZone: "us-west1-a",
-					},
-				},
-			},
-			wantFilterStatus: framework.NewStatus(framework.UnschedulableAndUnresolvable, ErrReasonConflict),
-		},
-		{
-			name: "pv with zone,node with beta zone",
-			Pod:  createPodWithVolume("pod_1", "Vol_Stable_1", "PVC_Stable_1"),
-			Node: &v1.Node{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "host1",
-					Labels: map[string]string{
-						v1.LabelFailureDomainBetaZone: "us-west1-a",
-					},
-				},
-			},
-			wantFilterStatus: framework.NewStatus(framework.UnschedulableAndUnresolvable, ErrReasonConflict),
-		},
-		{
-			name: "pv with beta label,node with ga label, matched",
-			Pod:  createPodWithVolume("pod_1", "Vol_1", "PVC_1"),
-			Node: &v1.Node{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "host1",
-					Labels: map[string]string{
-						v1.LabelTopologyZone: "us-west1-a",
-					},
-				},
-			},
-		},
-		{
-			name: "pv with beta label,node with ga label, don't match",
-			Pod:  createPodWithVolume("pod_1", "vol_1", "PVC_1"),
-			Node: &v1.Node{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "host1",
-					Labels: map[string]string{
-						v1.LabelTopologyZone: "us-west1-b",
-					},
-				},
-			},
-			wantFilterStatus: framework.NewStatus(framework.UnschedulableAndUnresolvable, ErrReasonConflict),
+			wantStatus: framework.NewStatus(framework.UnschedulableAndUnresolvable, ErrReasonConflict),
 		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			_, ctx := ktesting.NewTestContext(t)
-			ctx, cancel := context.WithCancel(ctx)
-			defer cancel()
-
-			state := framework.NewCycleState()
 			node := &framework.NodeInfo{}
 			node.SetNode(test.Node)
 			p := &VolumeZone{
@@ -270,20 +199,16 @@ func TestSingleZone(t *testing.T) {
 				pvcLister,
 				nil,
 			}
-			_, preFilterStatus := p.PreFilter(ctx, state, test.Pod)
-			if diff := cmp.Diff(preFilterStatus, test.wantPreFilterStatus); diff != "" {
-				t.Errorf("PreFilter: status does not match (-want,+got):\n%s", diff)
-			}
-			filterStatus := p.Filter(ctx, state, test.Pod, node)
-			if diff := cmp.Diff(filterStatus, test.wantFilterStatus); diff != "" {
-				t.Errorf("Filter: status does not match (-want,+got):\n%s", diff)
+			gotStatus := p.Filter(context.Background(), nil, test.Pod, node)
+			if !reflect.DeepEqual(gotStatus, test.wantStatus) {
+				t.Errorf("status does not match: %v, want: %v", gotStatus, test.wantStatus)
 			}
 		})
 	}
 }
 
 func TestMultiZone(t *testing.T) {
-	pvLister := tf.PersistentVolumeLister{
+	pvLister := fakeframework.PersistentVolumeLister{
 		{
 			ObjectMeta: metav1.ObjectMeta{Name: "Vol_1", Labels: map[string]string{v1.LabelFailureDomainBetaZone: "us-west1-a"}},
 		},
@@ -301,7 +226,7 @@ func TestMultiZone(t *testing.T) {
 		},
 	}
 
-	pvcLister := tf.PersistentVolumeClaimLister{
+	pvcLister := fakeframework.PersistentVolumeClaimLister{
 		{
 			ObjectMeta: metav1.ObjectMeta{Name: "PVC_1", Namespace: "default"},
 			Spec:       v1.PersistentVolumeClaimSpec{VolumeName: "Vol_1"},
@@ -329,11 +254,10 @@ func TestMultiZone(t *testing.T) {
 	}
 
 	tests := []struct {
-		name                string
-		Pod                 *v1.Pod
-		Node                *v1.Node
-		wantPreFilterStatus *framework.Status
-		wantFilterStatus    *framework.Status
+		name       string
+		Pod        *v1.Pod
+		Node       *v1.Node
+		wantStatus *framework.Status
 	}{
 		{
 			name: "node without labels",
@@ -363,7 +287,7 @@ func TestMultiZone(t *testing.T) {
 					Labels: map[string]string{v1.LabelFailureDomainBetaZone: "us-west1-b", "uselessLabel": "none"},
 				},
 			},
-			wantFilterStatus: framework.NewStatus(framework.UnschedulableAndUnresolvable, ErrReasonConflict),
+			wantStatus: framework.NewStatus(framework.UnschedulableAndUnresolvable, ErrReasonConflict),
 		},
 		{
 			name: "zone label matched",
@@ -384,17 +308,12 @@ func TestMultiZone(t *testing.T) {
 					Labels: map[string]string{v1.LabelTopologyZone: "us-west1-b", "uselessLabel": "none"},
 				},
 			},
-			wantFilterStatus: framework.NewStatus(framework.UnschedulableAndUnresolvable, ErrReasonConflict),
+			wantStatus: framework.NewStatus(framework.UnschedulableAndUnresolvable, ErrReasonConflict),
 		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			_, ctx := ktesting.NewTestContext(t)
-			ctx, cancel := context.WithCancel(ctx)
-			defer cancel()
-
-			state := framework.NewCycleState()
 			node := &framework.NodeInfo{}
 			node.SetNode(test.Node)
 			p := &VolumeZone{
@@ -402,13 +321,9 @@ func TestMultiZone(t *testing.T) {
 				pvcLister,
 				nil,
 			}
-			_, preFilterStatus := p.PreFilter(ctx, state, test.Pod)
-			if diff := cmp.Diff(preFilterStatus, test.wantPreFilterStatus); diff != "" {
-				t.Errorf("PreFilter: status does not match (-want,+got):\n%s", diff)
-			}
-			filterStatus := p.Filter(ctx, state, test.Pod, node)
-			if diff := cmp.Diff(filterStatus, test.wantFilterStatus); diff != "" {
-				t.Errorf("Filter: status does not match (-want,+got):\n%s", diff)
+			gotStatus := p.Filter(context.Background(), nil, test.Pod, node)
+			if !reflect.DeepEqual(gotStatus, test.wantStatus) {
+				t.Errorf("status does not match: %v, want: %v", gotStatus, test.wantStatus)
 			}
 		})
 	}
@@ -423,7 +338,7 @@ func TestWithBinding(t *testing.T) {
 		classImmediate = "Class_Immediate"
 	)
 
-	scLister := tf.StorageClassLister{
+	scLister := fakeframework.StorageClassLister{
 		{
 			ObjectMeta: metav1.ObjectMeta{Name: classImmediate},
 		},
@@ -433,13 +348,13 @@ func TestWithBinding(t *testing.T) {
 		},
 	}
 
-	pvLister := tf.PersistentVolumeLister{
+	pvLister := fakeframework.PersistentVolumeLister{
 		{
 			ObjectMeta: metav1.ObjectMeta{Name: "Vol_1", Labels: map[string]string{v1.LabelFailureDomainBetaZone: "us-west1-a"}},
 		},
 	}
 
-	pvcLister := tf.PersistentVolumeClaimLister{
+	pvcLister := fakeframework.PersistentVolumeClaimLister{
 		{
 			ObjectMeta: metav1.ObjectMeta{Name: "PVC_1", Namespace: "default"},
 			Spec:       v1.PersistentVolumeClaimSpec{VolumeName: "Vol_1"},
@@ -469,11 +384,10 @@ func TestWithBinding(t *testing.T) {
 	}
 
 	tests := []struct {
-		name                string
-		Pod                 *v1.Pod
-		Node                *v1.Node
-		wantPreFilterStatus *framework.Status
-		wantFilterStatus    *framework.Status
+		name       string
+		Pod        *v1.Pod
+		Node       *v1.Node
+		wantStatus *framework.Status
 	}{
 		{
 			name: "label zone failure domain matched",
@@ -484,42 +398,31 @@ func TestWithBinding(t *testing.T) {
 			name: "unbound volume empty storage class",
 			Pod:  createPodWithVolume("pod_1", "vol_1", "PVC_EmptySC"),
 			Node: testNode,
-			wantPreFilterStatus: framework.NewStatus(framework.UnschedulableAndUnresolvable,
-				"PersistentVolumeClaim had no pv name and storageClass name"),
-			wantFilterStatus: framework.NewStatus(framework.UnschedulableAndUnresolvable,
+			wantStatus: framework.NewStatus(framework.UnschedulableAndUnresolvable,
 				"PersistentVolumeClaim had no pv name and storageClass name"),
 		},
 		{
 			name: "unbound volume no storage class",
 			Pod:  createPodWithVolume("pod_1", "vol_1", "PVC_NoSC"),
 			Node: testNode,
-			wantPreFilterStatus: framework.NewStatus(framework.UnschedulableAndUnresolvable,
-				"unable to find storage class: Class_0"),
-			wantFilterStatus: framework.NewStatus(framework.UnschedulableAndUnresolvable,
+			wantStatus: framework.NewStatus(framework.UnschedulableAndUnresolvable,
 				"unable to find storage class: Class_0"),
 		},
 		{
-			name:                "unbound volume immediate binding mode",
-			Pod:                 createPodWithVolume("pod_1", "vol_1", "PVC_ImmediateSC"),
-			Node:                testNode,
-			wantPreFilterStatus: framework.NewStatus(framework.UnschedulableAndUnresolvable, "VolumeBindingMode not set for StorageClass \"Class_Immediate\""),
-			wantFilterStatus:    framework.NewStatus(framework.UnschedulableAndUnresolvable, "VolumeBindingMode not set for StorageClass \"Class_Immediate\""),
+			name:       "unbound volume immediate binding mode",
+			Pod:        createPodWithVolume("pod_1", "vol_1", "PVC_ImmediateSC"),
+			Node:       testNode,
+			wantStatus: framework.NewStatus(framework.UnschedulableAndUnresolvable, "VolumeBindingMode not set for StorageClass \"Class_Immediate\""),
 		},
 		{
-			name:                "unbound volume wait binding mode",
-			Pod:                 createPodWithVolume("pod_1", "vol_1", "PVC_WaitSC"),
-			Node:                testNode,
-			wantPreFilterStatus: framework.NewStatus(framework.Skip),
+			name: "unbound volume wait binding mode",
+			Pod:  createPodWithVolume("pod_1", "vol_1", "PVC_WaitSC"),
+			Node: testNode,
 		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			_, ctx := ktesting.NewTestContext(t)
-			ctx, cancel := context.WithCancel(ctx)
-			defer cancel()
-
-			state := framework.NewCycleState()
 			node := &framework.NodeInfo{}
 			node.SetNode(test.Node)
 			p := &VolumeZone{
@@ -527,123 +430,10 @@ func TestWithBinding(t *testing.T) {
 				pvcLister,
 				scLister,
 			}
-			_, preFilterStatus := p.PreFilter(ctx, state, test.Pod)
-			if diff := cmp.Diff(preFilterStatus, test.wantPreFilterStatus); diff != "" {
-				t.Errorf("PreFilter: status does not match (-want,+got):\n%s", diff)
-			}
-			filterStatus := p.Filter(ctx, state, test.Pod, node)
-			if diff := cmp.Diff(filterStatus, test.wantFilterStatus); diff != "" {
-				t.Errorf("Filter: status does not match (-want,+got):\n%s", diff)
+			gotStatus := p.Filter(context.Background(), nil, test.Pod, node)
+			if !reflect.DeepEqual(gotStatus, test.wantStatus) {
+				t.Errorf("status does not match: %v, want: %v", gotStatus, test.wantStatus)
 			}
 		})
 	}
-}
-
-func BenchmarkVolumeZone(b *testing.B) {
-	tests := []struct {
-		Name      string
-		Pod       *v1.Pod
-		NumPV     int
-		NumPVC    int
-		NumNodes  int
-		PreFilter bool
-	}{
-		{
-			Name:      "with prefilter",
-			Pod:       createPodWithVolume("pod_0", "Vol_Stable_0", "PVC_Stable_0"),
-			NumPV:     1000,
-			NumPVC:    1000,
-			NumNodes:  1000,
-			PreFilter: true,
-		},
-		{
-			Name:      "without prefilter",
-			Pod:       createPodWithVolume("pod_0", "Vol_Stable_0", "PVC_Stable_0"),
-			NumPV:     1000,
-			NumPVC:    1000,
-			NumNodes:  1000,
-			PreFilter: false,
-		},
-	}
-
-	for _, tt := range tests {
-		b.Run(tt.Name, func(b *testing.B) {
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
-			nodes := makeNodesWithTopologyZone(tt.NumNodes)
-			pl := newPluginWithListers(ctx, b, []*v1.Pod{tt.Pod}, nodes, makePVCsWithPV(tt.NumPVC), makePVsWithZoneLabel(tt.NumPV))
-			nodeInfos := make([]*framework.NodeInfo, len(nodes), len(nodes))
-			for i := 0; i < len(nodes); i++ {
-				nodeInfo := &framework.NodeInfo{}
-				nodeInfo.SetNode(nodes[i])
-				nodeInfos[i] = nodeInfo
-			}
-			p := pl.(*VolumeZone)
-			state := framework.NewCycleState()
-
-			b.ResetTimer()
-
-			for i := 0; i < b.N; i++ {
-				if tt.PreFilter {
-					_, _ = p.PreFilter(ctx, state, tt.Pod)
-				}
-				for _, node := range nodeInfos {
-					_ = p.Filter(ctx, state, tt.Pod, node)
-				}
-			}
-		})
-	}
-}
-
-func newPluginWithListers(ctx context.Context, tb testing.TB, pods []*v1.Pod, nodes []*v1.Node, pvcs []*v1.PersistentVolumeClaim, pvs []*v1.PersistentVolume) framework.Plugin {
-	snapshot := cache.NewSnapshot(pods, nodes)
-
-	objects := make([]runtime.Object, 0, len(pvcs))
-	for _, pvc := range pvcs {
-		objects = append(objects, pvc)
-	}
-	for _, pv := range pvs {
-		objects = append(objects, pv)
-	}
-	return plugintesting.SetupPluginWithInformers(ctx, tb, New, &config.InterPodAffinityArgs{}, snapshot, objects)
-}
-
-func makePVsWithZoneLabel(num int) []*v1.PersistentVolume {
-	pvList := make([]*v1.PersistentVolume, num, num)
-	for i := 0; i < len(pvList); i++ {
-		pvName := fmt.Sprintf("Vol_Stable_%d", i)
-		zone := fmt.Sprintf("us-west-%d", i)
-		pvList[i] = &v1.PersistentVolume{
-			ObjectMeta: metav1.ObjectMeta{Name: pvName, Labels: map[string]string{v1.LabelTopologyZone: zone}},
-		}
-	}
-	return pvList
-}
-
-func makePVCsWithPV(num int) []*v1.PersistentVolumeClaim {
-	pvcList := make([]*v1.PersistentVolumeClaim, num, num)
-	for i := 0; i < len(pvcList); i++ {
-		pvcName := fmt.Sprintf("PVC_Stable_%d", i)
-		pvName := fmt.Sprintf("Vol_Stable_%d", i)
-		pvcList[i] = &v1.PersistentVolumeClaim{
-			ObjectMeta: metav1.ObjectMeta{Name: pvcName, Namespace: "default"},
-			Spec:       v1.PersistentVolumeClaimSpec{VolumeName: pvName},
-		}
-	}
-	return pvcList
-}
-
-func makeNodesWithTopologyZone(num int) []*v1.Node {
-	nodeList := make([]*v1.Node, num, num)
-	for i := 0; i < len(nodeList); i++ {
-		nodeName := fmt.Sprintf("host_%d", i)
-		zone := fmt.Sprintf("us-west-0")
-		nodeList[i] = &v1.Node{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:   nodeName,
-				Labels: map[string]string{v1.LabelTopologyZone: zone, "uselessLabel": "none"},
-			},
-		}
-	}
-	return nodeList
 }

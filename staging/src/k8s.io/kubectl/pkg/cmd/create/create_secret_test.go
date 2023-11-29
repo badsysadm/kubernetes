@@ -17,6 +17,7 @@ limitations under the License.
 package create
 
 import (
+	"io/ioutil"
 	"os"
 	"testing"
 
@@ -340,8 +341,8 @@ func TestCreateSecretGeneric(t *testing.T) {
 		"create_secret_get_env_from_env_file": {
 			secretName: "get_env",
 			setup: func() func(t *testing.T, secretGenericOptions *CreateSecretOptions) func() {
-				t.Setenv("g_key1", "1")
-				t.Setenv("g_key2", "2")
+				os.Setenv("g_key1", "1")
+				os.Setenv("g_key2", "2")
 				return setupSecretEnvFile([][]string{{"g_key1", "g_key2="}})
 			}(),
 			fromEnvFile: []string{"file.env"},
@@ -362,8 +363,8 @@ func TestCreateSecretGeneric(t *testing.T) {
 		"create_secret_get_env_from_env_file_hash": {
 			secretName: "get_env",
 			setup: func() func(t *testing.T, secretGenericOptions *CreateSecretOptions) func() {
-				t.Setenv("g_key1", "1")
-				t.Setenv("g_key2", "2")
+				os.Setenv("g_key1", "1")
+				os.Setenv("g_key2", "2")
 				return setupSecretEnvFile([][]string{{"g_key1", "g_key2="}})
 			}(),
 			fromEnvFile: []string{"file.env"},
@@ -539,7 +540,7 @@ func setupSecretEnvFile(lines [][]string) func(*testing.T, *CreateSecretOptions)
 		files := []*os.File{}
 		filenames := secretOptions.EnvFileSources
 		for _, filename := range filenames {
-			file, err := os.CreateTemp("", filename)
+			file, err := ioutil.TempFile("", filename)
 			if err != nil {
 				t.Errorf("unexpected error: %v", err)
 			}
@@ -563,11 +564,11 @@ func setupSecretEnvFile(lines [][]string) func(*testing.T, *CreateSecretOptions)
 
 func setupSecretBinaryFile(data []byte) func(*testing.T, *CreateSecretOptions) func() {
 	return func(t *testing.T, secretOptions *CreateSecretOptions) func() {
-		tmp, _ := os.MkdirTemp("", "")
+		tmp, _ := ioutil.TempDir("", "")
 		files := secretOptions.FileSources
 		for i, file := range files {
 			f := tmp + "/" + file
-			os.WriteFile(f, data, 0644)
+			ioutil.WriteFile(f, data, 0644)
 			secretOptions.FileSources[i] = f
 		}
 		return func() {

@@ -31,9 +31,11 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	runtimeapi "k8s.io/cri-api/pkg/apis/runtime/v1"
 	kubeletconfig "k8s.io/kubernetes/pkg/kubelet/apis/config"
 	"k8s.io/kubernetes/pkg/kubelet/cm/cpumanager"
 	"k8s.io/kubernetes/pkg/kubelet/cm/topologymanager"
+	"k8s.io/kubernetes/pkg/kubelet/types"
 	admissionapi "k8s.io/pod-security-admission/api"
 
 	"k8s.io/kubernetes/test/e2e/framework"
@@ -86,16 +88,6 @@ func detectCoresPerSocket() int {
 	framework.ExpectNoError(err)
 
 	return coreCount
-}
-
-func detectThreadPerCore() int {
-	outData, err := exec.Command("/bin/sh", "-c", "lscpu | grep \"Thread(s) per core:\" | cut -d \":\" -f 2").Output()
-	framework.ExpectNoError(err)
-
-	threadCount, err := strconv.Atoi(strings.TrimSpace(string(outData)))
-	framework.ExpectNoError(err)
-
-	return threadCount
 }
 
 func makeContainers(ctnCmd string, ctnAttributes []tmCtnAttribute) (ctns []v1.Container) {
@@ -209,6 +201,8 @@ func configureTopologyManagerInKubelet(oldCfg *kubeletconfig.KubeletConfiguratio
 		newCfg.FeatureGates = make(map[string]bool)
 	}
 
+	newCfg.FeatureGates["TopologyManager"] = true
+
 	// Set the Topology Manager policy
 	newCfg.TopologyManagerPolicy = policy
 
@@ -296,11 +290,11 @@ func findSRIOVResource(node *v1.Node) (string, int64) {
 	return "", 0
 }
 
-func validatePodAlignment(ctx context.Context, f *framework.Framework, pod *v1.Pod, envInfo *testEnvInfo) {
+func validatePodAlignment(f *framework.Framework, pod *v1.Pod, envInfo *testEnvInfo) {
 	for _, cnt := range pod.Spec.Containers {
 		ginkgo.By(fmt.Sprintf("validating the container %s on Gu pod %s", cnt.Name, pod.Name))
 
-		logs, err := e2epod.GetPodLogs(ctx, f.ClientSet, f.Namespace.Name, pod.Name, cnt.Name)
+		logs, err := e2epod.GetPodLogs(f.ClientSet, f.Namespace.Name, pod.Name, cnt.Name)
 		framework.ExpectNoError(err, "expected log not found in container [%s] of pod [%s]", cnt.Name, pod.Name)
 
 		framework.Logf("got pod logs: %v", logs)
@@ -313,13 +307,13 @@ func validatePodAlignment(ctx context.Context, f *framework.Framework, pod *v1.P
 }
 
 // validatePodAligmentWithPodScope validates whether all pod's CPUs are affined to the same NUMA node.
-func validatePodAlignmentWithPodScope(ctx context.Context, f *framework.Framework, pod *v1.Pod, envInfo *testEnvInfo) error {
+func validatePodAlignmentWithPodScope(f *framework.Framework, pod *v1.Pod, envInfo *testEnvInfo) error {
 	// Mapping between CPU IDs and NUMA node IDs.
 	podsNUMA := make(map[int]int)
 
 	ginkgo.By(fmt.Sprintf("validate pod scope alignment for %s pod", pod.Name))
 	for _, cnt := range pod.Spec.Containers {
-		logs, err := e2epod.GetPodLogs(ctx, f.ClientSet, f.Namespace.Name, pod.Name, cnt.Name)
+		logs, err := e2epod.GetPodLogs(f.ClientSet, f.Namespace.Name, pod.Name, cnt.Name)
 		framework.ExpectNoError(err, "NUMA alignment failed for container [%s] of pod [%s]", cnt.Name, pod.Name)
 		envMap, err := makeEnvMap(logs)
 		framework.ExpectNoError(err, "NUMA alignment failed for container [%s] of pod [%s]", cnt.Name, pod.Name)
@@ -342,10 +336,10 @@ func validatePodAlignmentWithPodScope(ctx context.Context, f *framework.Framewor
 	return nil
 }
 
-func runTopologyManagerPolicySuiteTests(ctx context.Context, f *framework.Framework) {
+func runTopologyManagerPolicySuiteTests(f *framework.Framework) {
 	var cpuCap, cpuAlloc int64
 
-	cpuCap, cpuAlloc, _ = getLocalNodeCPUDetails(ctx, f)
+	cpuCap, cpuAlloc, _ = getLocalNodeCPUDetails(f)
 	ginkgo.By(fmt.Sprintf("checking node CPU capacity (%d) and allocatable CPUs (%d)", cpuCap, cpuAlloc))
 
 	// Albeit even the weakest CI machines usually have 2 cpus, let's be extra careful and
@@ -355,10 +349,10 @@ func runTopologyManagerPolicySuiteTests(ctx context.Context, f *framework.Framew
 	}
 
 	ginkgo.By("running a non-Gu pod")
-	runNonGuPodTest(ctx, f, cpuCap)
+	runNonGuPodTest(f, cpuCap)
 
 	ginkgo.By("running a Gu pod")
-	runGuPodTest(ctx, f, 1)
+	runGuPodTest(f, 1)
 
 	// Skip rest of the tests if CPU allocatable < 3.
 	if cpuAlloc < 3 {
@@ -366,26 +360,48 @@ func runTopologyManagerPolicySuiteTests(ctx context.Context, f *framework.Framew
 	}
 
 	ginkgo.By("running multiple Gu and non-Gu pods")
-	runMultipleGuNonGuPods(ctx, f, cpuCap, cpuAlloc)
+	runMultipleGuNonGuPods(f, cpuCap, cpuAlloc)
 
 	ginkgo.By("running a Gu pod requesting multiple CPUs")
-	runMultipleCPUGuPod(ctx, f)
+	runMultipleCPUGuPod(f)
 
 	ginkgo.By("running a Gu pod with multiple containers requesting integer CPUs")
-	runMultipleCPUContainersGuPod(ctx, f)
+	runMultipleCPUContainersGuPod(f)
 
 	ginkgo.By("running multiple Gu pods")
-	runMultipleGuPods(ctx, f)
+	runMultipleGuPods(f)
 }
 
-func runTopologyManagerPositiveTest(ctx context.Context, f *framework.Framework, numPods int, ctnAttrs, initCtnAttrs []tmCtnAttribute, envInfo *testEnvInfo) {
+// waitForAllContainerRemoval waits until all the containers on a given pod are really gone.
+// This is needed by the e2e tests which involve exclusive resource allocation (cpu, topology manager; podresources; etc.)
+// In these cases, we need to make sure the tests clean up after themselves to make sure each test runs in
+// a pristine environment. The only way known so far to do that is to introduce this wait.
+// Worth noting, however, that this makes the test runtime much bigger.
+func waitForAllContainerRemoval(podName, podNS string) {
+	rs, _, err := getCRIClient()
+	framework.ExpectNoError(err)
+	gomega.Eventually(func() bool {
+		containers, err := rs.ListContainers(context.Background(), &runtimeapi.ContainerFilter{
+			LabelSelector: map[string]string{
+				types.KubernetesPodNameLabel:      podName,
+				types.KubernetesPodNamespaceLabel: podNS,
+			},
+		})
+		if err != nil {
+			return false
+		}
+		return len(containers) == 0
+	}, 2*time.Minute, 1*time.Second).Should(gomega.BeTrue())
+}
+
+func runTopologyManagerPositiveTest(f *framework.Framework, numPods int, ctnAttrs, initCtnAttrs []tmCtnAttribute, envInfo *testEnvInfo) {
 	podMap := make(map[string]*v1.Pod)
 
 	for podID := 0; podID < numPods; podID++ {
 		podName := fmt.Sprintf("gu-pod-%d", podID)
 		framework.Logf("creating pod %s attrs %v", podName, ctnAttrs)
 		pod := makeTopologyManagerTestPod(podName, ctnAttrs, initCtnAttrs)
-		pod = e2epod.NewPodClient(f).CreateSync(ctx, pod)
+		pod = e2epod.NewPodClient(f).CreateSync(pod)
 		framework.Logf("created pod %s", podName)
 		podMap[podName] = pod
 	}
@@ -394,20 +410,20 @@ func runTopologyManagerPositiveTest(ctx context.Context, f *framework.Framework,
 	// we can do a menaingful validation only when using the single-numa node policy
 	if envInfo.policy == topologymanager.PolicySingleNumaNode {
 		for _, pod := range podMap {
-			validatePodAlignment(ctx, f, pod, envInfo)
+			validatePodAlignment(f, pod, envInfo)
 		}
 		if envInfo.scope == podScopeTopology {
 			for _, pod := range podMap {
-				err := validatePodAlignmentWithPodScope(ctx, f, pod, envInfo)
+				err := validatePodAlignmentWithPodScope(f, pod, envInfo)
 				framework.ExpectNoError(err)
 			}
 		}
 	}
 
-	deletePodsAsync(ctx, f, podMap)
+	deletePodsAsync(f, podMap)
 }
 
-func deletePodsAsync(ctx context.Context, f *framework.Framework, podMap map[string]*v1.Pod) {
+func deletePodsAsync(f *framework.Framework, podMap map[string]*v1.Pod) {
 	var wg sync.WaitGroup
 	for _, pod := range podMap {
 		wg.Add(1)
@@ -415,27 +431,27 @@ func deletePodsAsync(ctx context.Context, f *framework.Framework, podMap map[str
 			defer ginkgo.GinkgoRecover()
 			defer wg.Done()
 
-			deletePodSyncByName(ctx, f, podName)
-			waitForAllContainerRemoval(ctx, podName, podNS)
+			deletePodSyncByName(f, podName)
+			waitForAllContainerRemoval(podName, podNS)
 		}(pod.Namespace, pod.Name)
 	}
 	wg.Wait()
 }
 
-func runTopologyManagerNegativeTest(ctx context.Context, f *framework.Framework, ctnAttrs, initCtnAttrs []tmCtnAttribute, envInfo *testEnvInfo) {
+func runTopologyManagerNegativeTest(f *framework.Framework, ctnAttrs, initCtnAttrs []tmCtnAttribute, envInfo *testEnvInfo) {
 	podName := "gu-pod"
 	framework.Logf("creating pod %s attrs %v", podName, ctnAttrs)
 	pod := makeTopologyManagerTestPod(podName, ctnAttrs, initCtnAttrs)
 
-	pod = e2epod.NewPodClient(f).Create(ctx, pod)
-	err := e2epod.WaitForPodCondition(ctx, f.ClientSet, f.Namespace.Name, pod.Name, "Failed", 30*time.Second, func(pod *v1.Pod) (bool, error) {
+	pod = e2epod.NewPodClient(f).Create(pod)
+	err := e2epod.WaitForPodCondition(f.ClientSet, f.Namespace.Name, pod.Name, "Failed", 30*time.Second, func(pod *v1.Pod) (bool, error) {
 		if pod.Status.Phase != v1.PodPending {
 			return true, nil
 		}
 		return false, nil
 	})
 	framework.ExpectNoError(err)
-	pod, err = e2epod.NewPodClient(f).Get(ctx, pod.Name, metav1.GetOptions{})
+	pod, err = e2epod.NewPodClient(f).Get(context.TODO(), pod.Name, metav1.GetOptions{})
 	framework.ExpectNoError(err)
 
 	if pod.Status.Phase != v1.PodFailed {
@@ -445,7 +461,7 @@ func runTopologyManagerNegativeTest(ctx context.Context, f *framework.Framework,
 		framework.Failf("pod %s failed for wrong reason: %q", pod.Name, pod.Status.Reason)
 	}
 
-	deletePodSyncByName(ctx, f, pod.Name)
+	deletePodSyncByName(f, pod.Name)
 }
 
 func isTopologyAffinityError(pod *v1.Pod) bool {
@@ -482,20 +498,20 @@ type sriovData struct {
 	resourceAmount int64
 }
 
-func setupSRIOVConfigOrFail(ctx context.Context, f *framework.Framework, configMap *v1.ConfigMap) *sriovData {
-	sd := createSRIOVConfigOrFail(ctx, f, configMap)
+func setupSRIOVConfigOrFail(f *framework.Framework, configMap *v1.ConfigMap) *sriovData {
+	sd := createSRIOVConfigOrFail(f, configMap)
 
-	e2enode.WaitForNodeToBeReady(ctx, f.ClientSet, framework.TestContext.NodeName, 5*time.Minute)
+	e2enode.WaitForNodeToBeReady(f.ClientSet, framework.TestContext.NodeName, 5*time.Minute)
 
-	sd.pod = createSRIOVPodOrFail(ctx, f)
+	sd.pod = createSRIOVPodOrFail(f)
 	return sd
 }
 
-func createSRIOVConfigOrFail(ctx context.Context, f *framework.Framework, configMap *v1.ConfigMap) *sriovData {
+func createSRIOVConfigOrFail(f *framework.Framework, configMap *v1.ConfigMap) *sriovData {
 	var err error
 
 	ginkgo.By(fmt.Sprintf("Creating configMap %v/%v", metav1.NamespaceSystem, configMap.Name))
-	if _, err = f.ClientSet.CoreV1().ConfigMaps(metav1.NamespaceSystem).Create(ctx, configMap, metav1.CreateOptions{}); err != nil {
+	if _, err = f.ClientSet.CoreV1().ConfigMaps(metav1.NamespaceSystem).Create(context.TODO(), configMap, metav1.CreateOptions{}); err != nil {
 		framework.Failf("unable to create test configMap %s: %v", configMap.Name, err)
 	}
 
@@ -505,7 +521,7 @@ func createSRIOVConfigOrFail(ctx context.Context, f *framework.Framework, config
 	}
 	serviceAccount := readServiceAccountV1OrDie(data)
 	ginkgo.By(fmt.Sprintf("Creating serviceAccount %v/%v", metav1.NamespaceSystem, serviceAccount.Name))
-	if _, err = f.ClientSet.CoreV1().ServiceAccounts(metav1.NamespaceSystem).Create(ctx, serviceAccount, metav1.CreateOptions{}); err != nil {
+	if _, err = f.ClientSet.CoreV1().ServiceAccounts(metav1.NamespaceSystem).Create(context.TODO(), serviceAccount, metav1.CreateOptions{}); err != nil {
 		framework.Failf("unable to create test serviceAccount %s: %v", serviceAccount.Name, err)
 	}
 
@@ -515,15 +531,15 @@ func createSRIOVConfigOrFail(ctx context.Context, f *framework.Framework, config
 	}
 }
 
-func createSRIOVPodOrFail(ctx context.Context, f *framework.Framework) *v1.Pod {
+func createSRIOVPodOrFail(f *framework.Framework) *v1.Pod {
 	dp := getSRIOVDevicePluginPod()
 	dp.Spec.NodeName = framework.TestContext.NodeName
 
 	ginkgo.By("Create SRIOV device plugin pod")
-	dpPod, err := f.ClientSet.CoreV1().Pods(metav1.NamespaceSystem).Create(ctx, dp, metav1.CreateOptions{})
+	dpPod, err := f.ClientSet.CoreV1().Pods(metav1.NamespaceSystem).Create(context.TODO(), dp, metav1.CreateOptions{})
 	framework.ExpectNoError(err)
 
-	if err = e2epod.WaitForPodCondition(ctx, f.ClientSet, metav1.NamespaceSystem, dp.Name, "Ready", 120*time.Second, testutils.PodRunningReady); err != nil {
+	if err = e2epod.WaitForPodCondition(f.ClientSet, metav1.NamespaceSystem, dp.Name, "Ready", 120*time.Second, testutils.PodRunningReady); err != nil {
 		framework.Logf("SRIOV Pod %v took too long to enter running/ready: %v", dp.Name, err)
 	}
 	framework.ExpectNoError(err)
@@ -533,12 +549,12 @@ func createSRIOVPodOrFail(ctx context.Context, f *framework.Framework) *v1.Pod {
 
 // waitForSRIOVResources waits until enough SRIOV resources are avaailable, expecting to complete within the timeout.
 // if exits successfully, updates the sriovData with the resources which were found.
-func waitForSRIOVResources(ctx context.Context, f *framework.Framework, sd *sriovData) {
+func waitForSRIOVResources(f *framework.Framework, sd *sriovData) {
 	sriovResourceName := ""
 	var sriovResourceAmount int64
 	ginkgo.By("Waiting for devices to become available on the local node")
-	gomega.Eventually(ctx, func(ctx context.Context) bool {
-		node := getLocalNode(ctx, f)
+	gomega.Eventually(func() bool {
+		node := getLocalNode(f)
 		sriovResourceName, sriovResourceAmount = findSRIOVResource(node)
 		return sriovResourceAmount > minSriovResource
 	}, 2*time.Minute, framework.Poll).Should(gomega.BeTrue())
@@ -548,7 +564,7 @@ func waitForSRIOVResources(ctx context.Context, f *framework.Framework, sd *srio
 	framework.Logf("Detected SRIOV allocatable devices name=%q amount=%d", sd.resourceName, sd.resourceAmount)
 }
 
-func deleteSRIOVPodOrFail(ctx context.Context, f *framework.Framework, sd *sriovData) {
+func deleteSRIOVPodOrFail(f *framework.Framework, sd *sriovData) {
 	var err error
 	gp := int64(0)
 	deleteOptions := metav1.DeleteOptions{
@@ -556,12 +572,12 @@ func deleteSRIOVPodOrFail(ctx context.Context, f *framework.Framework, sd *sriov
 	}
 
 	ginkgo.By(fmt.Sprintf("Delete SRIOV device plugin pod %s/%s", sd.pod.Namespace, sd.pod.Name))
-	err = f.ClientSet.CoreV1().Pods(sd.pod.Namespace).Delete(ctx, sd.pod.Name, deleteOptions)
+	err = f.ClientSet.CoreV1().Pods(sd.pod.Namespace).Delete(context.TODO(), sd.pod.Name, deleteOptions)
 	framework.ExpectNoError(err)
-	waitForAllContainerRemoval(ctx, sd.pod.Name, sd.pod.Namespace)
+	waitForAllContainerRemoval(sd.pod.Name, sd.pod.Namespace)
 }
 
-func removeSRIOVConfigOrFail(ctx context.Context, f *framework.Framework, sd *sriovData) {
+func removeSRIOVConfigOrFail(f *framework.Framework, sd *sriovData) {
 	var err error
 	gp := int64(0)
 	deleteOptions := metav1.DeleteOptions{
@@ -569,25 +585,25 @@ func removeSRIOVConfigOrFail(ctx context.Context, f *framework.Framework, sd *sr
 	}
 
 	ginkgo.By(fmt.Sprintf("Deleting configMap %v/%v", metav1.NamespaceSystem, sd.configMap.Name))
-	err = f.ClientSet.CoreV1().ConfigMaps(metav1.NamespaceSystem).Delete(ctx, sd.configMap.Name, deleteOptions)
+	err = f.ClientSet.CoreV1().ConfigMaps(metav1.NamespaceSystem).Delete(context.TODO(), sd.configMap.Name, deleteOptions)
 	framework.ExpectNoError(err)
 
 	ginkgo.By(fmt.Sprintf("Deleting serviceAccount %v/%v", metav1.NamespaceSystem, sd.serviceAccount.Name))
-	err = f.ClientSet.CoreV1().ServiceAccounts(metav1.NamespaceSystem).Delete(ctx, sd.serviceAccount.Name, deleteOptions)
+	err = f.ClientSet.CoreV1().ServiceAccounts(metav1.NamespaceSystem).Delete(context.TODO(), sd.serviceAccount.Name, deleteOptions)
 	framework.ExpectNoError(err)
 }
 
-func teardownSRIOVConfigOrFail(ctx context.Context, f *framework.Framework, sd *sriovData) {
-	deleteSRIOVPodOrFail(ctx, f, sd)
-	removeSRIOVConfigOrFail(ctx, f, sd)
+func teardownSRIOVConfigOrFail(f *framework.Framework, sd *sriovData) {
+	deleteSRIOVPodOrFail(f, sd)
+	removeSRIOVConfigOrFail(f, sd)
 }
 
-func runTMScopeResourceAlignmentTestSuite(ctx context.Context, f *framework.Framework, configMap *v1.ConfigMap, reservedSystemCPUs, policy string, numaNodes, coreCount int) {
+func runTMScopeResourceAlignmentTestSuite(f *framework.Framework, configMap *v1.ConfigMap, reservedSystemCPUs, policy string, numaNodes, coreCount int) {
 	threadsPerCore := getSMTLevel()
-	sd := setupSRIOVConfigOrFail(ctx, f, configMap)
+	sd := setupSRIOVConfigOrFail(f, configMap)
 	var ctnAttrs, initCtnAttrs []tmCtnAttribute
 
-	waitForSRIOVResources(ctx, f, sd)
+	waitForSRIOVResources(f, sd)
 
 	envInfo := &testEnvInfo{
 		numaNodes:         numaNodes,
@@ -615,7 +631,7 @@ func runTMScopeResourceAlignmentTestSuite(ctx context.Context, f *framework.Fram
 			deviceLimit:   "1",
 		},
 	}
-	runTopologyManagerPositiveTest(ctx, f, 2, ctnAttrs, initCtnAttrs, envInfo)
+	runTopologyManagerPositiveTest(f, 2, ctnAttrs, initCtnAttrs, envInfo)
 
 	numCores := threadsPerCore * coreCount
 	coresReq := fmt.Sprintf("%dm", numCores*1000)
@@ -636,7 +652,7 @@ func runTMScopeResourceAlignmentTestSuite(ctx context.Context, f *framework.Fram
 			deviceLimit:   "1",
 		},
 	}
-	runTopologyManagerNegativeTest(ctx, f, ctnAttrs, initCtnAttrs, envInfo)
+	runTopologyManagerNegativeTest(f, ctnAttrs, initCtnAttrs, envInfo)
 
 	// The Topology Manager with pod scope should calculate how many CPUs it needs to admit a pod basing on two requests:
 	// the maximum of init containers' demand for CPU and sum of app containers' requests for CPU.
@@ -677,15 +693,15 @@ func runTMScopeResourceAlignmentTestSuite(ctx context.Context, f *framework.Fram
 			deviceLimit:   "1",
 		},
 	}
-	runTopologyManagerPositiveTest(ctx, f, 2, ctnAttrs, initCtnAttrs, envInfo)
+	runTopologyManagerPositiveTest(f, 2, ctnAttrs, initCtnAttrs, envInfo)
 
-	teardownSRIOVConfigOrFail(ctx, f, sd)
+	teardownSRIOVConfigOrFail(f, sd)
 }
 
-func runTopologyManagerNodeAlignmentSuiteTests(ctx context.Context, f *framework.Framework, sd *sriovData, reservedSystemCPUs, policy string, numaNodes, coreCount int) {
+func runTopologyManagerNodeAlignmentSuiteTests(f *framework.Framework, sd *sriovData, reservedSystemCPUs, policy string, numaNodes, coreCount int) {
 	threadsPerCore := getSMTLevel()
 
-	waitForSRIOVResources(ctx, f, sd)
+	waitForSRIOVResources(f, sd)
 
 	envInfo := &testEnvInfo{
 		numaNodes:         numaNodes,
@@ -708,7 +724,7 @@ func runTopologyManagerNodeAlignmentSuiteTests(ctx context.Context, f *framework
 			deviceLimit:   "1",
 		},
 	}
-	runTopologyManagerPositiveTest(ctx, f, 1, ctnAttrs, initCtnAttrs, envInfo)
+	runTopologyManagerPositiveTest(f, 1, ctnAttrs, initCtnAttrs, envInfo)
 
 	ginkgo.By(fmt.Sprintf("Successfully admit one guaranteed pod with 2 cores, 1 %s device", sd.resourceName))
 	ctnAttrs = []tmCtnAttribute{
@@ -721,7 +737,7 @@ func runTopologyManagerNodeAlignmentSuiteTests(ctx context.Context, f *framework
 			deviceLimit:   "1",
 		},
 	}
-	runTopologyManagerPositiveTest(ctx, f, 1, ctnAttrs, initCtnAttrs, envInfo)
+	runTopologyManagerPositiveTest(f, 1, ctnAttrs, initCtnAttrs, envInfo)
 
 	if reservedSystemCPUs != "" {
 		// to avoid false negatives, we have put reserved CPUs in such a way there is at least a NUMA node
@@ -739,7 +755,7 @@ func runTopologyManagerNodeAlignmentSuiteTests(ctx context.Context, f *framework
 				deviceLimit:   "1",
 			},
 		}
-		runTopologyManagerPositiveTest(ctx, f, 1, ctnAttrs, initCtnAttrs, envInfo)
+		runTopologyManagerPositiveTest(f, 1, ctnAttrs, initCtnAttrs, envInfo)
 	}
 
 	if sd.resourceAmount > 1 {
@@ -756,7 +772,7 @@ func runTopologyManagerNodeAlignmentSuiteTests(ctx context.Context, f *framework
 				deviceLimit:   "1",
 			},
 		}
-		runTopologyManagerPositiveTest(ctx, f, 2, ctnAttrs, initCtnAttrs, envInfo)
+		runTopologyManagerPositiveTest(f, 2, ctnAttrs, initCtnAttrs, envInfo)
 
 		ginkgo.By(fmt.Sprintf("Successfully admit two guaranteed pods, each with 2 cores, 1 %s device", sd.resourceName))
 		ctnAttrs = []tmCtnAttribute{
@@ -769,7 +785,7 @@ func runTopologyManagerNodeAlignmentSuiteTests(ctx context.Context, f *framework
 				deviceLimit:   "1",
 			},
 		}
-		runTopologyManagerPositiveTest(ctx, f, 2, ctnAttrs, initCtnAttrs, envInfo)
+		runTopologyManagerPositiveTest(f, 2, ctnAttrs, initCtnAttrs, envInfo)
 
 		// testing more complex conditions require knowledge about the system cpu+bus topology
 	}
@@ -795,7 +811,7 @@ func runTopologyManagerNodeAlignmentSuiteTests(ctx context.Context, f *framework
 				deviceLimit:   "1",
 			},
 		}
-		runTopologyManagerPositiveTest(ctx, f, 1, ctnAttrs, initCtnAttrs, envInfo)
+		runTopologyManagerPositiveTest(f, 1, ctnAttrs, initCtnAttrs, envInfo)
 
 		ginkgo.By(fmt.Sprintf("Successfully admit two guaranteed pods, each with two containers, each with 1 core, 1 %s device", sd.resourceName))
 		ctnAttrs = []tmCtnAttribute{
@@ -816,7 +832,7 @@ func runTopologyManagerNodeAlignmentSuiteTests(ctx context.Context, f *framework
 				deviceLimit:   "1",
 			},
 		}
-		runTopologyManagerPositiveTest(ctx, f, 2, ctnAttrs, initCtnAttrs, envInfo)
+		runTopologyManagerPositiveTest(f, 2, ctnAttrs, initCtnAttrs, envInfo)
 
 		ginkgo.By(fmt.Sprintf("Successfully admit two guaranteed pods, each with two containers, both with with 2 cores, one with 1 %s device", sd.resourceName))
 		ctnAttrs = []tmCtnAttribute{
@@ -834,7 +850,7 @@ func runTopologyManagerNodeAlignmentSuiteTests(ctx context.Context, f *framework
 				cpuLimit:   "2000m",
 			},
 		}
-		runTopologyManagerPositiveTest(ctx, f, 2, ctnAttrs, initCtnAttrs, envInfo)
+		runTopologyManagerPositiveTest(f, 2, ctnAttrs, initCtnAttrs, envInfo)
 	}
 
 	// this is the only policy that can guarantee reliable rejects
@@ -853,7 +869,7 @@ func runTopologyManagerNodeAlignmentSuiteTests(ctx context.Context, f *framework
 				deviceLimit:   "1",
 			},
 		}
-		runTopologyManagerNegativeTest(ctx, f, ctnAttrs, initCtnAttrs, envInfo)
+		runTopologyManagerNegativeTest(f, ctnAttrs, initCtnAttrs, envInfo)
 	}
 }
 
@@ -868,8 +884,8 @@ func runTopologyManagerTests(f *framework.Framework) {
 		topologymanager.PolicyNone,
 	}
 
-	ginkgo.It("run Topology Manager policy test suite", func(ctx context.Context) {
-		oldCfg, err = getCurrentKubeletConfig(ctx)
+	ginkgo.It("run Topology Manager policy test suite", func() {
+		oldCfg, err = getCurrentKubeletConfig()
 		framework.ExpectNoError(err)
 
 		scope := containerScopeTopology
@@ -879,22 +895,22 @@ func runTopologyManagerTests(f *framework.Framework) {
 			framework.Logf("Configuring topology Manager policy to %s", policy)
 
 			newCfg, _ := configureTopologyManagerInKubelet(oldCfg, policy, scope, nil, 0)
-			updateKubeletConfig(ctx, f, newCfg, true)
+			updateKubeletConfig(f, newCfg, true)
 			// Run the tests
-			runTopologyManagerPolicySuiteTests(ctx, f)
+			runTopologyManagerPolicySuiteTests(f)
 		}
 	})
 
-	ginkgo.It("run Topology Manager node alignment test suite", func(ctx context.Context) {
+	ginkgo.It("run Topology Manager node alignment test suite", func() {
 		numaNodes, coreCount := hostPrecheck()
 
 		configMap := getSRIOVDevicePluginConfigMap(framework.TestContext.SriovdpConfigMapFile)
 
-		oldCfg, err = getCurrentKubeletConfig(ctx)
+		oldCfg, err = getCurrentKubeletConfig()
 		framework.ExpectNoError(err)
 
-		sd := setupSRIOVConfigOrFail(ctx, f, configMap)
-		ginkgo.DeferCleanup(teardownSRIOVConfigOrFail, f, sd)
+		sd := setupSRIOVConfigOrFail(f, configMap)
+		defer teardownSRIOVConfigOrFail(f, sd)
 
 		scope := containerScopeTopology
 		for _, policy := range policies {
@@ -903,33 +919,33 @@ func runTopologyManagerTests(f *framework.Framework) {
 			framework.Logf("Configuring topology Manager policy to %s", policy)
 
 			newCfg, reservedSystemCPUs := configureTopologyManagerInKubelet(oldCfg, policy, scope, configMap, numaNodes)
-			updateKubeletConfig(ctx, f, newCfg, true)
+			updateKubeletConfig(f, newCfg, true)
 
-			runTopologyManagerNodeAlignmentSuiteTests(ctx, f, sd, reservedSystemCPUs, policy, numaNodes, coreCount)
+			runTopologyManagerNodeAlignmentSuiteTests(f, sd, reservedSystemCPUs, policy, numaNodes, coreCount)
 		}
 	})
 
-	ginkgo.It("run the Topology Manager pod scope alignment test suite", func(ctx context.Context) {
+	ginkgo.It("run the Topology Manager pod scope alignment test suite", func() {
 		numaNodes, coreCount := hostPrecheck()
 
 		configMap := getSRIOVDevicePluginConfigMap(framework.TestContext.SriovdpConfigMapFile)
 
-		oldCfg, err = getCurrentKubeletConfig(ctx)
+		oldCfg, err = getCurrentKubeletConfig()
 		framework.ExpectNoError(err)
 
 		policy := topologymanager.PolicySingleNumaNode
 		scope := podScopeTopology
 
 		newCfg, reservedSystemCPUs := configureTopologyManagerInKubelet(oldCfg, policy, scope, configMap, numaNodes)
-		updateKubeletConfig(ctx, f, newCfg, true)
+		updateKubeletConfig(f, newCfg, true)
 
-		runTMScopeResourceAlignmentTestSuite(ctx, f, configMap, reservedSystemCPUs, policy, numaNodes, coreCount)
+		runTMScopeResourceAlignmentTestSuite(f, configMap, reservedSystemCPUs, policy, numaNodes, coreCount)
 	})
 
-	ginkgo.AfterEach(func(ctx context.Context) {
+	ginkgo.AfterEach(func() {
 		if oldCfg != nil {
 			// restore kubelet config
-			updateKubeletConfig(ctx, f, oldCfg, true)
+			updateKubeletConfig(f, oldCfg, true)
 		}
 	})
 }
@@ -954,9 +970,9 @@ func hostPrecheck() (int, int) {
 }
 
 // Serial because the test updates kubelet configuration.
-var _ = SIGDescribe("Topology Manager [Serial] [Feature:TopologyManager]", func() {
+var _ = SIGDescribe("Topology Manager [Serial] [Feature:TopologyManager][NodeFeature:TopologyManager]", func() {
 	f := framework.NewDefaultFramework("topology-manager-test")
-	f.NamespacePodSecurityLevel = admissionapi.LevelPrivileged
+	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 
 	ginkgo.Context("With kubeconfig updated to static CPU Manager policy run the Topology Manager tests", func() {
 		runTopologyManagerTests(f)

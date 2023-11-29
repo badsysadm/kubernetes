@@ -18,7 +18,7 @@ package rollout
 
 import (
 	"bytes"
-	"io"
+	"io/ioutil"
 	"net/http"
 	"testing"
 
@@ -26,7 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/cli-runtime/pkg/genericiooptions"
+	"k8s.io/cli-runtime/pkg/genericclioptions"
 	restclient "k8s.io/client-go/rest"
 	"k8s.io/client-go/rest/fake"
 	cmdtesting "k8s.io/kubectl/pkg/cmd/testing"
@@ -51,7 +51,7 @@ func TestRolloutPause(t *testing.T) {
 				case p == "/namespaces/test/deployments/nginx-deployment" && (m == "GET" || m == "PATCH"):
 					responseDeployment := &appsv1.Deployment{}
 					responseDeployment.Name = deploymentName
-					body := io.NopCloser(bytes.NewReader([]byte(runtime.EncodeOrDie(encoder, responseDeployment))))
+					body := ioutil.NopCloser(bytes.NewReader([]byte(runtime.EncodeOrDie(encoder, responseDeployment))))
 					return &http.Response{StatusCode: http.StatusOK, Header: cmdtesting.DefaultHeader(), Body: body}, nil
 				default:
 					t.Fatalf("unexpected request: %#v\n%#v", req.URL, req)
@@ -61,7 +61,7 @@ func TestRolloutPause(t *testing.T) {
 		},
 	}
 
-	streams, _, buf, _ := genericiooptions.NewTestIOStreams()
+	streams, _, buf, _ := genericclioptions.NewTestIOStreams()
 	cmd := NewCmdRolloutPause(tf, streams)
 
 	cmd.Run(cmd, []string{deploymentName})

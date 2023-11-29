@@ -17,7 +17,6 @@ limitations under the License.
 package e2enode
 
 import (
-	"context"
 	"fmt"
 	"path/filepath"
 	"time"
@@ -57,7 +56,7 @@ func runOneQuotaTest(f *framework.Framework, quotasRequested bool) {
 		priority = 1
 	}
 	ginkgo.Context(fmt.Sprintf(testContextFmt, fmt.Sprintf("use quotas for LSCI monitoring (quotas enabled: %v)", quotasRequested)), func() {
-		tempSetCurrentKubeletConfig(f, func(ctx context.Context, initialConfig *kubeletconfig.KubeletConfiguration) {
+		tempSetCurrentKubeletConfig(f, func(initialConfig *kubeletconfig.KubeletConfiguration) {
 			defer withFeatureGate(LSCIQuotaFeature, quotasRequested)()
 			// TODO: remove hardcoded kubelet volume directory path
 			// framework.TestContext.KubeVolumeDir is currently not populated for node e2e
@@ -98,7 +97,7 @@ func runOneQuotaTest(f *framework.Framework, quotasRequested bool) {
 // file; if du is used to monitor, it will not detect this.
 var _ = SIGDescribe("LocalStorageCapacityIsolationFSQuotaMonitoring [Slow] [Serial] [Disruptive] [Feature:LocalStorageCapacityIsolationQuota][NodeFeature:LSCIQuotaMonitoring]", func() {
 	f := framework.NewDefaultFramework("localstorage-quota-monitoring-test")
-	f.NamespacePodSecurityLevel = admissionapi.LevelPrivileged
+	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	runOneQuotaTest(f, true)
 	runOneQuotaTest(f, false)
 })

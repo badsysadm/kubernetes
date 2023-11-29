@@ -22,12 +22,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
 
-	"k8s.io/cli-runtime/pkg/genericiooptions"
+	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"k8s.io/client-go/kubernetes"
 	restclient "k8s.io/client-go/rest"
 	"k8s.io/kubectl/pkg/cmd/exec"
@@ -78,18 +79,18 @@ type CopyOptions struct {
 
 	args []string
 
-	genericiooptions.IOStreams
+	genericclioptions.IOStreams
 }
 
 // NewCopyOptions creates the options for copy
-func NewCopyOptions(ioStreams genericiooptions.IOStreams) *CopyOptions {
+func NewCopyOptions(ioStreams genericclioptions.IOStreams) *CopyOptions {
 	return &CopyOptions{
 		IOStreams: ioStreams,
 	}
 }
 
 // NewCmdCp creates a new Copy command.
-func NewCmdCp(f cmdutil.Factory, ioStreams genericiooptions.IOStreams) *cobra.Command {
+func NewCmdCp(f cmdutil.Factory, ioStreams genericclioptions.IOStreams) *cobra.Command {
 	o := NewCopyOptions(ioStreams)
 
 	cmd := &cobra.Command{
@@ -109,14 +110,14 @@ func NewCmdCp(f cmdutil.Factory, ioStreams genericiooptions.IOStreams) *cobra.Co
 					// complete <namespace>/<pod>
 					namespace := toComplete[:idx]
 					template := "{{ range .items }}{{ .metadata.namespace }}/{{ .metadata.name }}: {{ end }}"
-					comps = completion.CompGetFromTemplate(&template, f, namespace, []string{"pod"}, toComplete)
+					comps = completion.CompGetFromTemplate(&template, f, namespace, cmd, []string{"pod"}, toComplete)
 				} else {
 					// Complete namespaces followed by a /
-					for _, ns := range completion.CompGetResource(f, "namespace", toComplete) {
+					for _, ns := range completion.CompGetResource(f, cmd, "namespace", toComplete) {
 						comps = append(comps, fmt.Sprintf("%s/", ns))
 					}
 					// Complete pod names followed by a :
-					for _, pod := range completion.CompGetResource(f, "pod", toComplete) {
+					for _, pod := range completion.CompGetResource(f, cmd, "pod", toComplete) {
 						comps = append(comps, fmt.Sprintf("%s:", pod))
 					}
 
@@ -128,7 +129,7 @@ func NewCmdCp(f cmdutil.Factory, ioStreams genericiooptions.IOStreams) *cobra.Co
 					//    listing the entire content of the current directory which could
 					//    be too many choices for the user)
 					if len(comps) > 0 && len(toComplete) > 0 {
-						if files, err := os.ReadDir("."); err == nil {
+						if files, err := ioutil.ReadDir("."); err == nil {
 							for _, file := range files {
 								filename := file.Name()
 								if strings.HasPrefix(filename, toComplete) {
@@ -266,7 +267,7 @@ func (o *CopyOptions) Run() error {
 func (o *CopyOptions) checkDestinationIsDir(dest fileSpec) error {
 	options := &exec.ExecOptions{
 		StreamOptions: exec.StreamOptions{
-			IOStreams: genericiooptions.IOStreams{
+			IOStreams: genericclioptions.IOStreams{
 				Out:    bytes.NewBuffer([]byte{}),
 				ErrOut: bytes.NewBuffer([]byte{}),
 			},
@@ -303,6 +304,7 @@ func (o *CopyOptions) copyToPod(src, dest fileSpec, options *exec.ExecOptions) e
 	}(srcFile, destFile, writer)
 	var cmdArr []string
 
+	// TODO: Improve error messages by first testing if 'tar' is present in the container?
 	if o.NoPreserve {
 		cmdArr = []string{"tar", "--no-same-permissions", "--no-same-owner", "-xmf", "-"}
 	} else {
@@ -314,7 +316,7 @@ func (o *CopyOptions) copyToPod(src, dest fileSpec, options *exec.ExecOptions) e
 	}
 
 	options.StreamOptions = exec.StreamOptions{
-		IOStreams: genericiooptions.IOStreams{
+		IOStreams: genericclioptions.IOStreams{
 			In:     reader,
 			Out:    o.Out,
 			ErrOut: o.ErrOut,
@@ -361,7 +363,7 @@ func (t *TarPipe) initReadFrom(n uint64) {
 	t.reader, t.outStream = io.Pipe()
 	options := &exec.ExecOptions{
 		StreamOptions: exec.StreamOptions{
-			IOStreams: genericiooptions.IOStreams{
+			IOStreams: genericclioptions.IOStreams{
 				In:     nil,
 				Out:    t.outStream,
 				ErrOut: t.o.Out,
@@ -371,6 +373,7 @@ func (t *TarPipe) initReadFrom(n uint64) {
 			PodName:   t.src.PodName,
 		},
 
+		// TODO: Improve error messages by first testing if 'tar' is present in the container?
 		Command:  []string{"tar", "cf", "-", t.src.File.String()},
 		Executor: &exec.DefaultRemoteExecutor{},
 	}
@@ -422,7 +425,7 @@ func recursiveTar(srcDir, srcFile localPath, destDir, destFile remotePath, tw *t
 			return err
 		}
 		if stat.IsDir() {
-			files, err := os.ReadDir(fpath)
+			files, err := ioutil.ReadDir(fpath)
 			if err != nil {
 				return err
 			}

@@ -48,10 +48,8 @@ import (
 )
 
 const (
-	NodePrepareResourceMethod    = "/v1alpha2.Node/NodePrepareResource"
-	NodePrepareResourcesMethod   = "/v1alpha3.Node/NodePrepareResources"
-	NodeUnprepareResourceMethod  = "/v1alpha2.Node/NodeUnprepareResource"
-	NodeUnprepareResourcesMethod = "/v1alpha3.Node/NodeUnprepareResources"
+	NodePrepareResourceMethod   = "/v1alpha1.Node/NodePrepareResource"
+	NodeUnprepareResourceMethod = "/v1alpha1.Node/NodeUnprepareResource"
 )
 
 type Nodes struct {
@@ -61,7 +59,7 @@ type Nodes struct {
 // NewNodes selects nodes to run the test on.
 func NewNodes(f *framework.Framework, minNodes, maxNodes int) *Nodes {
 	nodes := &Nodes{}
-	ginkgo.BeforeEach(func(ctx context.Context) {
+	ginkgo.BeforeEach(func() {
 		ginkgo.By("selecting nodes")
 		// The kubelet plugin is harder. We deploy the builtin manifest
 		// after patching in the driver name and all nodes on which we
@@ -69,7 +67,7 @@ func NewNodes(f *framework.Framework, minNodes, maxNodes int) *Nodes {
 		//
 		// Only a subset of the nodes are picked to avoid causing
 		// unnecessary load on a big cluster.
-		nodeList, err := e2enode.GetBoundedReadySchedulableNodes(ctx, f.ClientSet, maxNodes)
+		nodeList, err := e2enode.GetBoundedReadySchedulableNodes(f.ClientSet, maxNodes)
 		framework.ExpectNoError(err, "get nodes")
 		numNodes := int32(len(nodeList.Items))
 		if int(numNodes) < minNodes {
@@ -89,11 +87,9 @@ func NewNodes(f *framework.Framework, minNodes, maxNodes int) *Nodes {
 // up after the test.
 func NewDriver(f *framework.Framework, nodes *Nodes, configureResources func() app.Resources) *Driver {
 	d := &Driver{
-		f:            f,
-		fail:         map[MethodInstance]bool{},
-		callCounts:   map[MethodInstance]int64{},
-		NodeV1alpha2: true,
-		NodeV1alpha3: true,
+		f:          f,
+		fail:       map[MethodInstance]bool{},
+		callCounts: map[MethodInstance]int64{},
 	}
 
 	ginkgo.BeforeEach(func() {
@@ -125,8 +121,6 @@ type Driver struct {
 	Name       string
 	Nodes      map[string]*app.ExamplePlugin
 
-	NodeV1alpha2, NodeV1alpha3 bool
-
 	mutex      sync.Mutex
 	fail       map[MethodInstance]bool
 	callCounts map[MethodInstance]int64
@@ -136,7 +130,6 @@ func (d *Driver) SetUp(nodes *Nodes, resources app.Resources) {
 	ginkgo.By(fmt.Sprintf("deploying driver on nodes %v", nodes.NodeNames))
 	d.Nodes = map[string]*app.ExamplePlugin{}
 	d.Name = d.f.UniqueName + d.NameSuffix + ".k8s.io"
-	resources.DriverName = d.Name
 
 	ctx, cancel := context.WithCancel(context.Background())
 	if d.NameSuffix != "" {
@@ -147,8 +140,11 @@ func (d *Driver) SetUp(nodes *Nodes, resources app.Resources) {
 	d.ctx = ctx
 	d.cleanup = append(d.cleanup, cancel)
 
-	// The controller is easy: we simply connect to the API server.
-	d.Controller = app.NewController(d.f.ClientSet, resources)
+	// The controller is easy: we simply connect to the API server. It
+	// would be slightly nicer if we had a way to wait for all goroutines, but
+	// SharedInformerFactory has no API for that. At least we can wait
+	// for our own goroutine to stop once the context gets cancelled.
+	d.Controller = app.NewController(d.f.ClientSet, d.Name, resources)
 	d.wg.Add(1)
 	go func() {
 		defer d.wg.Done()
@@ -164,7 +160,7 @@ func (d *Driver) SetUp(nodes *Nodes, resources app.Resources) {
 	rsName := ""
 	draAddr := path.Join(framework.TestContext.KubeletRootDir, "plugins", d.Name+".sock")
 	numNodes := int32(len(nodes.NodeNames))
-	err := utils.CreateFromManifests(ctx, d.f, d.f.Namespace, func(item interface{}) error {
+	undeploy, err := utils.CreateFromManifests(d.f, d.f.Namespace, func(item interface{}) error {
 		switch item := item.(type) {
 		case *appsv1.ReplicaSet:
 			item.Name += d.NameSuffix
@@ -196,12 +192,13 @@ func (d *Driver) SetUp(nodes *Nodes, resources app.Resources) {
 		return nil
 	}, manifests...)
 	framework.ExpectNoError(err, "deploy kubelet plugin replicaset")
+	d.cleanup = append(d.cleanup, undeploy)
 
 	rs, err := d.f.ClientSet.AppsV1().ReplicaSets(d.f.Namespace.Name).Get(ctx, rsName, metav1.GetOptions{})
 	framework.ExpectNoError(err, "get replicaset")
 
 	// Wait for all pods to be running.
-	if err := e2ereplicaset.WaitForReplicaSetTargetAvailableReplicas(ctx, d.f.ClientSet, rs, numNodes); err != nil {
+	if err := e2ereplicaset.WaitForReplicaSetTargetAvailableReplicas(d.f.ClientSet, rs, numNodes); err != nil {
 		framework.ExpectNoError(err, "all kubelet plugin proxies running")
 	}
 	requirement, err := labels.NewRequirement(instanceKey, selection.Equals, []string{d.Name})
@@ -209,7 +206,7 @@ func (d *Driver) SetUp(nodes *Nodes, resources app.Resources) {
 	selector := labels.NewSelector().Add(*requirement)
 	pods, err := d.f.ClientSet.CoreV1().Pods(d.f.Namespace.Name).List(ctx, metav1.ListOptions{LabelSelector: selector.String()})
 	framework.ExpectNoError(err, "list proxy pods")
-	gomega.Expect(numNodes).To(gomega.Equal(int32(len(pods.Items))), "number of proxy pods")
+	framework.ExpectEqual(numNodes, int32(len(pods.Items)), "number of proxy pods")
 
 	// Run registar and plugin for each of the pods.
 	for _, pod := range pods.Items {
@@ -221,11 +218,11 @@ func (d *Driver) SetUp(nodes *Nodes, resources app.Resources) {
 		plugin, err := app.StartPlugin(logger, "/cdi", d.Name, nodename,
 			app.FileOperations{
 				Create: func(name string, content []byte) error {
-					klog.Background().Info("creating CDI file", "node", nodename, "filename", name, "content", string(content))
+					ginkgo.By(fmt.Sprintf("creating CDI file %s on node %s:\n%s", name, nodename, string(content)))
 					return d.createFile(&pod, name, content)
 				},
 				Remove: func(name string) error {
-					klog.Background().Info("deleting CDI file", "node", nodename, "filename", name)
+					ginkgo.By(fmt.Sprintf("deleting CDI file %s on node %s", name, nodename))
 					return d.removeFile(&pod, name)
 				},
 			},
@@ -236,8 +233,6 @@ func (d *Driver) SetUp(nodes *Nodes, resources app.Resources) {
 			kubeletplugin.PluginListener(listen(ctx, d.f, pod.Name, "plugin", 9001)),
 			kubeletplugin.RegistrarListener(listen(ctx, d.f, pod.Name, "registrar", 9000)),
 			kubeletplugin.KubeletPluginSocketPath(draAddr),
-			kubeletplugin.NodeV1alpha2(d.NodeV1alpha2),
-			kubeletplugin.NodeV1alpha3(d.NodeV1alpha3),
 		)
 		framework.ExpectNoError(err, "start kubelet plugin for node %s", pod.Spec.NodeName)
 		d.cleanup = append(d.cleanup, func() {
@@ -249,14 +244,14 @@ func (d *Driver) SetUp(nodes *Nodes, resources app.Resources) {
 
 	// Wait for registration.
 	ginkgo.By("wait for plugin registration")
-	gomega.Eventually(func() map[string][]app.GRPCCall {
-		notRegistered := make(map[string][]app.GRPCCall)
+	gomega.Eventually(func() []string {
+		var notRegistered []string
 		for nodename, plugin := range d.Nodes {
-			calls := plugin.GetGRPCCalls()
-			if contains, err := app.BeRegistered.Match(calls); err != nil || !contains {
-				notRegistered[nodename] = calls
+			if !plugin.IsRegistered() {
+				notRegistered = append(notRegistered, nodename)
 			}
 		}
+		sort.Strings(notRegistered)
 		return notRegistered
 	}).WithTimeout(time.Minute).Should(gomega.BeEmpty(), "hosts where the plugin has not been registered yet")
 }

@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"fmt"
 	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -667,7 +668,7 @@ func TestDescribeService(t *testing.T) {
 						Name:       "port-tcp",
 						Port:       8080,
 						Protocol:   corev1.ProtocolTCP,
-						TargetPort: intstr.FromInt32(9527),
+						TargetPort: intstr.FromInt(9527),
 						NodePort:   31111,
 					}},
 					Selector:              map[string]string{"blah": "heh"},
@@ -1254,7 +1255,7 @@ func TestDefaultDescribers(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if !strings.Contains(out, "foo") {
-		t.Errorf("missing Pod `foo` in output: %s", out)
+		t.Errorf("unexpected output: %s", out)
 	}
 
 	out, err = DefaultObjectDescriber.DescribeObject(&corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: "foo"}})
@@ -1262,18 +1263,18 @@ func TestDefaultDescribers(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if !strings.Contains(out, "foo") {
-		t.Errorf("missing Service `foo` in output: %s", out)
+		t.Errorf("unexpected output: %s", out)
 	}
 
 	out, err = DefaultObjectDescriber.DescribeObject(&corev1.ReplicationController{
 		ObjectMeta: metav1.ObjectMeta{Name: "foo"},
-		Spec:       corev1.ReplicationControllerSpec{Replicas: utilpointer.Int32(1)},
+		Spec:       corev1.ReplicationControllerSpec{Replicas: utilpointer.Int32Ptr(1)},
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if !strings.Contains(out, "foo") {
-		t.Errorf("missing Replication Controller `foo` in output: %s", out)
+		t.Errorf("unexpected output: %s", out)
 	}
 
 	out, err = DefaultObjectDescriber.DescribeObject(&corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "foo"}})
@@ -1281,18 +1282,7 @@ func TestDefaultDescribers(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if !strings.Contains(out, "foo") {
-		t.Errorf("missing Node `foo` output: %s", out)
-	}
-
-	out, err = DefaultObjectDescriber.DescribeObject(&appsv1.StatefulSet{
-		ObjectMeta: metav1.ObjectMeta{Name: "foo"},
-		Spec:       appsv1.StatefulSetSpec{Replicas: utilpointer.Int32(1)},
-	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !strings.Contains(out, "foo") {
-		t.Errorf("missing StatefulSet `foo` in output: %s", out)
+		t.Errorf("unexpected output: %s", out)
 	}
 }
 
@@ -1765,11 +1755,9 @@ func TestPersistentVolumeClaimDescriber(t *testing.T) {
 	now := time.Now()
 	deletionTimestamp := metav1.Time{Time: time.Now().UTC().AddDate(-10, 0, 0)}
 	snapshotAPIGroup := "snapshot.storage.k8s.io"
-	defaultDescriberSettings := &DescriberSettings{ShowEvents: true}
 	testCases := []struct {
 		name               string
 		pvc                *corev1.PersistentVolumeClaim
-		describerSettings  *DescriberSettings
 		expectedElements   []string
 		unexpectedElements []string
 	}{
@@ -1785,7 +1773,6 @@ func TestPersistentVolumeClaimDescriber(t *testing.T) {
 					Phase: corev1.ClaimBound,
 				},
 			},
-			expectedElements:   []string{"Events"},
 			unexpectedElements: []string{"VolumeMode", "Filesystem"},
 		},
 		{
@@ -1970,36 +1957,13 @@ func TestPersistentVolumeClaimDescriber(t *testing.T) {
 			},
 			expectedElements: []string{"DataSource:\n  APIGroup:  snapshot.storage.k8s.io\n  Kind:      VolumeSnapshot\n  Name:      src-snapshot\n"},
 		},
-		{
-			name: "no-show-events",
-			pvc: &corev1.PersistentVolumeClaim{
-				ObjectMeta: metav1.ObjectMeta{Namespace: "foo", Name: "bar"},
-				Spec: corev1.PersistentVolumeClaimSpec{
-					VolumeName:       "volume1",
-					StorageClassName: &goldClassName,
-				},
-				Status: corev1.PersistentVolumeClaimStatus{
-					Phase: corev1.ClaimBound,
-				},
-			},
-			unexpectedElements: []string{"Events"},
-			describerSettings:  &DescriberSettings{ShowEvents: false},
-		},
 	}
 
 	for _, test := range testCases {
 		t.Run(test.name, func(t *testing.T) {
 			fake := fake.NewSimpleClientset(test.pvc)
 			c := PersistentVolumeClaimDescriber{fake}
-
-			var describerSettings DescriberSettings
-			if test.describerSettings != nil {
-				describerSettings = *test.describerSettings
-			} else {
-				describerSettings = *defaultDescriberSettings
-			}
-
-			str, err := c.Describe("foo", "bar", describerSettings)
+			str, err := c.Describe("foo", "bar", DescriberSettings{ShowEvents: true})
 			if err != nil {
 				t.Errorf("Unexpected error for test %s: %v", test.name, err)
 			}
@@ -2015,123 +1979,6 @@ func TestPersistentVolumeClaimDescriber(t *testing.T) {
 				if strings.Contains(str, unexpected) {
 					t.Errorf("unexpected to find %q in output: %q", unexpected, str)
 				}
-			}
-		})
-	}
-}
-
-func TestGetPodsForPVC(t *testing.T) {
-	goldClassName := "gold"
-	testCases := []struct {
-		name            string
-		pvc             *corev1.PersistentVolumeClaim
-		requiredObjects []runtime.Object
-		expectedPods    []string
-	}{
-		{
-			name: "pvc-unused",
-			pvc: &corev1.PersistentVolumeClaim{
-				ObjectMeta: metav1.ObjectMeta{Namespace: "ns", Name: "pvc-name"},
-				Spec: corev1.PersistentVolumeClaimSpec{
-					VolumeName:       "volume1",
-					StorageClassName: &goldClassName,
-				},
-				Status: corev1.PersistentVolumeClaimStatus{
-					Phase: corev1.ClaimBound,
-				},
-			},
-			expectedPods: []string{},
-		},
-		{
-			name: "pvc-in-pods-volumes-list",
-			pvc: &corev1.PersistentVolumeClaim{
-				ObjectMeta: metav1.ObjectMeta{Namespace: "ns", Name: "pvc-name"},
-				Spec: corev1.PersistentVolumeClaimSpec{
-					VolumeName:       "volume1",
-					StorageClassName: &goldClassName,
-				},
-				Status: corev1.PersistentVolumeClaimStatus{
-					Phase: corev1.ClaimBound,
-				},
-			},
-			requiredObjects: []runtime.Object{
-				&corev1.Pod{
-					ObjectMeta: metav1.ObjectMeta{Namespace: "ns", Name: "pod-name"},
-					Spec: corev1.PodSpec{
-						Volumes: []corev1.Volume{
-							{
-								Name: "volume",
-								VolumeSource: corev1.VolumeSource{
-									PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
-										ClaimName: "pvc-name",
-									},
-								},
-							},
-						},
-					},
-				},
-			},
-			expectedPods: []string{"pod-name"},
-		},
-		{
-			name: "pvc-owned-by-pod",
-			pvc: &corev1.PersistentVolumeClaim{
-				ObjectMeta: metav1.ObjectMeta{
-					Namespace: "ns",
-					Name:      "pvc-name",
-					OwnerReferences: []metav1.OwnerReference{
-						{
-							Kind: "Pod",
-							Name: "pod-name",
-							UID:  "pod-uid",
-						},
-					},
-				},
-				Spec: corev1.PersistentVolumeClaimSpec{
-					VolumeName:       "volume1",
-					StorageClassName: &goldClassName,
-				},
-				Status: corev1.PersistentVolumeClaimStatus{
-					Phase: corev1.ClaimBound,
-				},
-			},
-			requiredObjects: []runtime.Object{
-				&corev1.Pod{
-					ObjectMeta: metav1.ObjectMeta{Namespace: "ns", Name: "pod-name", UID: "pod-uid"},
-				},
-			},
-			expectedPods: []string{"pod-name"},
-		},
-	}
-
-	for _, test := range testCases {
-		t.Run(test.name, func(t *testing.T) {
-			var objects []runtime.Object
-			objects = append(objects, test.requiredObjects...)
-			objects = append(objects, test.pvc)
-			fake := fake.NewSimpleClientset(objects...)
-
-			pods, err := getPodsForPVC(fake.CoreV1().Pods(test.pvc.ObjectMeta.Namespace), test.pvc, DescriberSettings{})
-			if err != nil {
-				t.Errorf("Unexpected error for test %s: %v", test.name, err)
-			}
-
-			for _, expectedPod := range test.expectedPods {
-				foundPod := false
-				for _, pod := range pods {
-					if pod.Name == expectedPod {
-						foundPod = true
-						break
-					}
-				}
-
-				if !foundPod {
-					t.Errorf("Expected pod %s, but it was not returned: %v", expectedPod, pods)
-				}
-			}
-
-			if len(test.expectedPods) != len(pods) {
-				t.Errorf("Expected %d pods, but got %d pods", len(test.expectedPods), len(pods))
 			}
 		})
 	}
@@ -2525,302 +2372,6 @@ func TestDescribeDeployment(t *testing.T) {
 				"Normal  ScalingReplicaSet  60s                deployment-controller  Scaled down replica set bar-002 to 1",
 			},
 		},
-		{
-			name: "deployment after successful rollout",
-			objects: []runtime.Object{
-				&appsv1.Deployment{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:              "bar",
-						Namespace:         "foo",
-						Labels:            labels,
-						UID:               "00000000-0000-0000-0000-000000000001",
-						CreationTimestamp: metav1.NewTime(time.Date(2021, time.Month(1), 1, 0, 0, 0, 0, time.UTC)),
-					},
-					Spec: appsv1.DeploymentSpec{
-						Replicas: utilpointer.Int32Ptr(2),
-						Selector: &metav1.LabelSelector{
-							MatchLabels: labels,
-						},
-						Template: corev1.PodTemplateSpec{
-							ObjectMeta: metav1.ObjectMeta{
-								Name:      "bar",
-								Namespace: "foo",
-								Labels:    labels,
-							},
-							Spec: corev1.PodSpec{
-								Containers: []corev1.Container{
-									{
-										Image: "mytest-image:v2.0",
-										VolumeMounts: []corev1.VolumeMount{
-											{
-												Name:      "vol-foo",
-												MountPath: "/tmp/vol-foo",
-											}, {
-												Name:      "vol-bar",
-												MountPath: "/tmp/vol-bar",
-											},
-										},
-									},
-								},
-								Volumes: []corev1.Volume{
-									{
-										Name:         "vol-foo",
-										VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
-									},
-									{
-										Name:         "vol-bar",
-										VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
-									},
-								},
-							},
-						},
-					},
-					Status: appsv1.DeploymentStatus{
-						Replicas:            2,
-						UpdatedReplicas:     2,
-						AvailableReplicas:   2,
-						UnavailableReplicas: 0,
-					},
-				}, &appsv1.ReplicaSet{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "bar-001",
-						Namespace: "foo",
-						Labels:    labels,
-						UID:       "00000000-0000-0000-0000-000000000001",
-						OwnerReferences: []metav1.OwnerReference{
-							{
-								Controller: utilpointer.BoolPtr(true),
-								UID:        "00000000-0000-0000-0000-000000000001",
-							},
-						},
-					},
-					Spec: appsv1.ReplicaSetSpec{
-						Replicas: utilpointer.Int32Ptr(0),
-						Selector: &metav1.LabelSelector{
-							MatchLabels: labels,
-						},
-						Template: corev1.PodTemplateSpec{
-							ObjectMeta: metav1.ObjectMeta{
-								Name:      "bar",
-								Namespace: "foo",
-								Labels:    labels,
-							},
-							Spec: corev1.PodSpec{
-								Containers: []corev1.Container{
-									{
-										Image: "mytest-image:v1.0",
-										VolumeMounts: []corev1.VolumeMount{
-											{
-												Name:      "vol-foo",
-												MountPath: "/tmp/vol-foo",
-											}, {
-												Name:      "vol-bar",
-												MountPath: "/tmp/vol-bar",
-											},
-										},
-									},
-								},
-								Volumes: []corev1.Volume{
-									{
-										Name:         "vol-foo",
-										VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
-									},
-									{
-										Name:         "vol-bar",
-										VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
-									},
-								},
-							},
-						},
-					},
-					Status: appsv1.ReplicaSetStatus{
-						Replicas:          0,
-						ReadyReplicas:     0,
-						AvailableReplicas: 0,
-					},
-				}, &appsv1.ReplicaSet{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "bar-002",
-						Namespace: "foo",
-						Labels:    labels,
-						UID:       "00000000-0000-0000-0000-000000000002",
-						OwnerReferences: []metav1.OwnerReference{
-							{
-								Controller: utilpointer.BoolPtr(true),
-								UID:        "00000000-0000-0000-0000-000000000001",
-							},
-						},
-					},
-					Spec: appsv1.ReplicaSetSpec{
-						Replicas: utilpointer.Int32Ptr(2),
-						Selector: &metav1.LabelSelector{
-							MatchLabels: labels,
-						},
-						Template: corev1.PodTemplateSpec{
-							ObjectMeta: metav1.ObjectMeta{
-								Name:      "bar",
-								Namespace: "foo",
-								Labels:    labels,
-							},
-							Spec: corev1.PodSpec{
-								Containers: []corev1.Container{
-									{
-										Image: "mytest-image:v2.0",
-										VolumeMounts: []corev1.VolumeMount{
-											{
-												Name:      "vol-foo",
-												MountPath: "/tmp/vol-foo",
-											}, {
-												Name:      "vol-bar",
-												MountPath: "/tmp/vol-bar",
-											},
-										},
-									},
-								},
-								Volumes: []corev1.Volume{
-									{
-										Name:         "vol-foo",
-										VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
-									},
-									{
-										Name:         "vol-bar",
-										VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
-									},
-								},
-							},
-						},
-					},
-					Status: appsv1.ReplicaSetStatus{
-						Replicas:          2,
-						ReadyReplicas:     2,
-						AvailableReplicas: 2,
-					},
-				}, &corev1.Event{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "bar-000",
-						Namespace: "foo",
-					},
-					InvolvedObject: corev1.ObjectReference{
-						APIVersion: "apps/v1",
-						Kind:       "Deployment",
-						Name:       "bar",
-						Namespace:  "foo",
-						UID:        "00000000-0000-0000-0000-000000000001",
-					},
-					Type:                corev1.EventTypeNormal,
-					Reason:              "ScalingReplicaSet",
-					Message:             "Scaled up replica set bar-002 to 1",
-					ReportingController: "deployment-controller",
-					EventTime:           metav1.NewMicroTime(time.Now().Add(-20 * time.Minute)),
-					Series: &corev1.EventSeries{
-						Count:            3,
-						LastObservedTime: metav1.NewMicroTime(time.Now().Add(-12 * time.Minute)),
-					},
-				}, &corev1.Event{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "bar-001",
-						Namespace: "foo",
-					},
-					InvolvedObject: corev1.ObjectReference{
-						APIVersion: "apps/v1",
-						Kind:       "Deployment",
-						Name:       "bar",
-						Namespace:  "foo",
-						UID:        "00000000-0000-0000-0000-000000000001",
-					},
-					Type:    corev1.EventTypeNormal,
-					Reason:  "ScalingReplicaSet",
-					Message: "Scaled up replica set bar-001 to 2",
-					Source: corev1.EventSource{
-						Component: "deployment-controller",
-					},
-					FirstTimestamp: metav1.NewTime(time.Now().Add(-10 * time.Minute)),
-				}, &corev1.Event{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "bar-002",
-						Namespace: "foo",
-					},
-					InvolvedObject: corev1.ObjectReference{
-						APIVersion: "apps/v1",
-						Kind:       "Deployment",
-						Name:       "bar",
-						Namespace:  "foo",
-						UID:        "00000000-0000-0000-0000-000000000001",
-					},
-					Type:    corev1.EventTypeNormal,
-					Reason:  "ScalingReplicaSet",
-					Message: "Scaled up replica set bar-002 to 1",
-					Source: corev1.EventSource{
-						Component: "deployment-controller",
-					},
-					FirstTimestamp: metav1.NewTime(time.Now().Add(-2 * time.Minute)),
-				}, &corev1.Event{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "bar-003",
-						Namespace: "foo",
-					},
-					InvolvedObject: corev1.ObjectReference{
-						APIVersion: "apps/v1",
-						Kind:       "Deployment",
-						Name:       "bar",
-						Namespace:  "foo",
-						UID:        "00000000-0000-0000-0000-000000000001",
-					},
-					Type:                corev1.EventTypeNormal,
-					Reason:              "ScalingReplicaSet",
-					Message:             "Scaled down replica set bar-002 to 1",
-					ReportingController: "deployment-controller",
-					EventTime:           metav1.NewMicroTime(time.Now().Add(-1 * time.Minute)),
-				}, &corev1.Event{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "bar-004",
-						Namespace: "foo",
-					},
-					InvolvedObject: corev1.ObjectReference{
-						APIVersion: "apps/v1",
-						Kind:       "Deployment",
-						Name:       "bar",
-						Namespace:  "foo",
-						UID:        "00000000-0000-0000-0000-000000000001",
-					},
-					Type:                corev1.EventTypeNormal,
-					Reason:              "ScalingReplicaSet",
-					Message:             "Scaled up replica set bar-002 to 2",
-					ReportingController: "deployment-controller",
-					EventTime:           metav1.NewMicroTime(time.Now().Add(-15 * time.Second)),
-				}, &corev1.Event{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "bar-005",
-						Namespace: "foo",
-					},
-					InvolvedObject: corev1.ObjectReference{
-						APIVersion: "apps/v1",
-						Kind:       "Deployment",
-						Name:       "bar",
-						Namespace:  "foo",
-						UID:        "00000000-0000-0000-0000-000000000001",
-					},
-					Type:                corev1.EventTypeNormal,
-					Reason:              "ScalingReplicaSet",
-					Message:             "Scaled down replica set bar-001 to 0",
-					ReportingController: "deployment-controller",
-					EventTime:           metav1.NewMicroTime(time.Now().Add(-3 * time.Second)),
-				},
-			},
-			expects: []string{
-				"Replicas:           2 desired | 2 updated | 2 total | 2 available | 0 unavailable",
-				"Image:        mytest-image:v2.0",
-				"OldReplicaSets:  bar-001 (0/0 replicas created)",
-				"NewReplicaSet:   bar-002 (2/2 replicas created)",
-				"Events:\n",
-				"Normal  ScalingReplicaSet  12m (x3 over 20m)  deployment-controller  Scaled up replica set bar-002 to 1",
-				"Normal  ScalingReplicaSet  10m                deployment-controller  Scaled up replica set bar-001 to 2",
-				"Normal  ScalingReplicaSet  2m                 deployment-controller  Scaled up replica set bar-002 to 1",
-				"Normal  ScalingReplicaSet  60s                deployment-controller  Scaled down replica set bar-002 to 1",
-				"Normal  ScalingReplicaSet  15s                deployment-controller  Scaled up replica set bar-002 to 2",
-				"Normal  ScalingReplicaSet  3s                 deployment-controller  Scaled down replica set bar-001 to 0",
-			},
-		},
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -2926,7 +2477,7 @@ func TestDescribeIngress(t *testing.T) {
 	ingresClassName := "test"
 	backendV1beta1 := networkingv1beta1.IngressBackend{
 		ServiceName: "default-backend",
-		ServicePort: intstr.FromInt32(80),
+		ServicePort: intstr.FromInt(80),
 	}
 	v1beta1 := fake.NewSimpleClientset(&networkingv1beta1.Ingress{
 		ObjectMeta: metav1.ObjectMeta{
@@ -3486,7 +3037,7 @@ func TestDescribeCSINode(t *testing.T) {
 }
 
 func TestDescribePodDisruptionBudgetV1beta1(t *testing.T) {
-	minAvailable := intstr.FromInt32(22)
+	minAvailable := intstr.FromInt(22)
 	f := fake.NewSimpleClientset(&policyv1beta1.PodDisruptionBudget{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace:         "ns1",
@@ -3514,7 +3065,7 @@ func TestDescribePodDisruptionBudgetV1beta1(t *testing.T) {
 }
 
 func TestDescribePodDisruptionBudgetV1(t *testing.T) {
-	minAvailable := intstr.FromInt32(22)
+	minAvailable := intstr.FromInt(22)
 	f := fake.NewSimpleClientset(&policyv1.PodDisruptionBudget{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace:         "ns1",
@@ -4849,6 +4400,70 @@ URL:	http://localhost
 	}
 }
 
+func TestDescribePodSecurityPolicy(t *testing.T) {
+	expected := []string{
+		"Name:\\s*mypsp",
+		"Allow Privileged:\\s*false",
+		"Allow Privilege Escalation:\\s*false",
+		"Default Add Capabilities:\\s*<none>",
+		"Required Drop Capabilities:\\s*<none>",
+		"Allowed Capabilities:\\s*<none>",
+		"Allowed Volume Types:\\s*<none>",
+		"Allowed Unsafe Sysctls:\\s*kernel\\.\\*,net\\.ipv4.ip_local_port_range",
+		"Forbidden Sysctls:\\s*net\\.ipv4\\.ip_default_ttl",
+		"Allow Host Network:\\s*false",
+		"Allow Host Ports:\\s*<none>",
+		"Allow Host PID:\\s*false",
+		"Allow Host IPC:\\s*false",
+		"Read Only Root Filesystem:\\s*false",
+		"SELinux Context Strategy: RunAsAny",
+		"User:\\s*<none>",
+		"Role:\\s*<none>",
+		"Type:\\s*<none>",
+		"Level:\\s*<none>",
+		"Run As User Strategy: RunAsAny",
+		"FSGroup Strategy: RunAsAny",
+		"Supplemental Groups Strategy: RunAsAny",
+	}
+
+	falseVal := false
+	fake := fake.NewSimpleClientset(&policyv1beta1.PodSecurityPolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "mypsp",
+		},
+		Spec: policyv1beta1.PodSecurityPolicySpec{
+			AllowPrivilegeEscalation: &falseVal,
+			AllowedUnsafeSysctls:     []string{"kernel.*", "net.ipv4.ip_local_port_range"},
+			ForbiddenSysctls:         []string{"net.ipv4.ip_default_ttl"},
+			SELinux: policyv1beta1.SELinuxStrategyOptions{
+				Rule: policyv1beta1.SELinuxStrategyRunAsAny,
+			},
+			RunAsUser: policyv1beta1.RunAsUserStrategyOptions{
+				Rule: policyv1beta1.RunAsUserStrategyRunAsAny,
+			},
+			FSGroup: policyv1beta1.FSGroupStrategyOptions{
+				Rule: policyv1beta1.FSGroupStrategyRunAsAny,
+			},
+			SupplementalGroups: policyv1beta1.SupplementalGroupsStrategyOptions{
+				Rule: policyv1beta1.SupplementalGroupsStrategyRunAsAny,
+			},
+		},
+	})
+
+	c := &describeClient{T: t, Namespace: "", Interface: fake}
+	d := PodSecurityPolicyDescriber{c}
+	out, err := d.Describe("", "mypsp", DescriberSettings{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	for _, item := range expected {
+		if matched, _ := regexp.MatchString(item, out); !matched {
+			t.Errorf("Expected to find %q in: %q", item, out)
+		}
+	}
+}
+
 func TestDescribeResourceQuota(t *testing.T) {
 	fake := fake.NewSimpleClientset(&corev1.ResourceQuota{
 		ObjectMeta: metav1.ObjectMeta{
@@ -5005,8 +4620,8 @@ Spec:
   Policy Types: Ingress, Egress
 `
 
-	port80 := intstr.FromInt32(80)
-	port82 := intstr.FromInt32(82)
+	port80 := intstr.FromInt(80)
+	port82 := intstr.FromInt(82)
 	protoTCP := corev1.ProtocolTCP
 
 	versionedFake := fake.NewSimpleClientset(&networkingv1.NetworkPolicy{
@@ -5190,8 +4805,8 @@ Spec:
   Policy Types: Ingress
 `
 
-	port80 := intstr.FromInt32(80)
-	port82 := intstr.FromInt32(82)
+	port80 := intstr.FromInt(80)
+	port82 := intstr.FromInt(82)
 	protoTCP := corev1.ProtocolTCP
 
 	versionedFake := fake.NewSimpleClientset(&networkingv1.NetworkPolicy{
@@ -5318,8 +4933,8 @@ Spec:
   Policy Types: Ingress, Egress
 `
 
-	port80 := intstr.FromInt32(80)
-	port82 := intstr.FromInt32(82)
+	port80 := intstr.FromInt(80)
+	port82 := intstr.FromInt(82)
 	protoTCP := corev1.ProtocolTCP
 
 	versionedFake := fake.NewSimpleClientset(&networkingv1.NetworkPolicy{
@@ -5599,156 +5214,6 @@ func TestDescribeNode(t *testing.T) {
 	}
 }
 
-func TestDescribeNodeWithSidecar(t *testing.T) {
-	holderIdentity := "holder"
-	nodeCapacity := mergeResourceLists(
-		getHugePageResourceList("2Mi", "4Gi"),
-		getResourceList("8", "24Gi"),
-		getHugePageResourceList("1Gi", "0"),
-	)
-	nodeAllocatable := mergeResourceLists(
-		getHugePageResourceList("2Mi", "2Gi"),
-		getResourceList("4", "12Gi"),
-		getHugePageResourceList("1Gi", "0"),
-	)
-
-	restartPolicy := corev1.ContainerRestartPolicyAlways
-	fake := fake.NewSimpleClientset(
-		&corev1.Node{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: "bar",
-				UID:  "uid",
-			},
-			Spec: corev1.NodeSpec{
-				Unschedulable: true,
-			},
-			Status: corev1.NodeStatus{
-				Capacity:    nodeCapacity,
-				Allocatable: nodeAllocatable,
-			},
-		},
-		&coordinationv1.Lease{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "bar",
-				Namespace: corev1.NamespaceNodeLease,
-			},
-			Spec: coordinationv1.LeaseSpec{
-				HolderIdentity: &holderIdentity,
-				AcquireTime:    &metav1.MicroTime{Time: time.Now().Add(-time.Hour)},
-				RenewTime:      &metav1.MicroTime{Time: time.Now()},
-			},
-		},
-		&corev1.Pod{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "pod-with-resources",
-				Namespace: "foo",
-			},
-			TypeMeta: metav1.TypeMeta{
-				Kind: "Pod",
-			},
-			Spec: corev1.PodSpec{
-				InitContainers: []corev1.Container{
-					// sidecar, should sum into the total resources
-					{
-						Name:          "init-container-1",
-						RestartPolicy: &restartPolicy,
-						Resources: corev1.ResourceRequirements{
-							Requests: getResourceList("1", "1Gi"),
-						},
-					},
-					// non-sidecar
-					{
-						Name: "init-container-2",
-						Resources: corev1.ResourceRequirements{
-							Requests: getResourceList("1", "1Gi"),
-						},
-					},
-				},
-				Containers: []corev1.Container{
-					{
-						Name:  "cpu-mem",
-						Image: "image:latest",
-						Resources: corev1.ResourceRequirements{
-							Requests: getResourceList("1", "1Gi"),
-							Limits:   getResourceList("2", "2Gi"),
-						},
-					},
-					{
-						Name:  "hugepages",
-						Image: "image:latest",
-						Resources: corev1.ResourceRequirements{
-							Requests: getHugePageResourceList("2Mi", "512Mi"),
-							Limits:   getHugePageResourceList("2Mi", "512Mi"),
-						},
-					},
-				},
-			},
-			Status: corev1.PodStatus{
-				Phase: corev1.PodRunning,
-			},
-		},
-		&corev1.EventList{
-			Items: []corev1.Event{
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "event-1",
-						Namespace: "default",
-					},
-					InvolvedObject: corev1.ObjectReference{
-						Kind: "Node",
-						Name: "bar",
-						UID:  "bar",
-					},
-					Message:        "Node bar status is now: NodeHasNoDiskPressure",
-					FirstTimestamp: metav1.NewTime(time.Date(2014, time.January, 15, 0, 0, 0, 0, time.UTC)),
-					LastTimestamp:  metav1.NewTime(time.Date(2014, time.January, 15, 0, 0, 0, 0, time.UTC)),
-					Count:          1,
-					Type:           corev1.EventTypeNormal,
-				},
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "event-2",
-						Namespace: "default",
-					},
-					InvolvedObject: corev1.ObjectReference{
-						Kind: "Node",
-						Name: "bar",
-						UID:  "0ceac5fb-a393-49d7-b04f-9ea5f18de5e9",
-					},
-					Message:        "Node bar status is now: NodeReady",
-					FirstTimestamp: metav1.NewTime(time.Date(2014, time.January, 15, 0, 0, 0, 0, time.UTC)),
-					LastTimestamp:  metav1.NewTime(time.Date(2014, time.January, 15, 0, 0, 0, 0, time.UTC)),
-					Count:          2,
-					Type:           corev1.EventTypeNormal,
-				},
-			},
-		},
-	)
-	c := &describeClient{T: t, Namespace: "foo", Interface: fake}
-	d := NodeDescriber{c}
-	out, err := d.Describe("foo", "bar", DescriberSettings{ShowEvents: true})
-	if err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
-
-	expectedOut := []string{"Unschedulable", "true", "holder",
-		`Allocated resources:
-  (Total limits may be over 100 percent, i.e., overcommitted.)
-  Resource           Requests     Limits
-  --------           --------     ------
-  cpu                2 (50%)      2 (50%)
-  memory             2Gi (16%)    2Gi (16%)
-  ephemeral-storage  0 (0%)       0 (0%)
-  hugepages-1Gi      0 (0%)       0 (0%)
-  hugepages-2Mi      512Mi (25%)  512Mi (25%)`,
-		`Node bar status is now: NodeHasNoDiskPressure`,
-		`Node bar status is now: NodeReady`}
-	for _, expected := range expectedOut {
-		if !strings.Contains(out, expected) {
-			t.Errorf("expected to find %s in output: %s", expected, out)
-		}
-	}
-}
 func TestDescribeStatefulSet(t *testing.T) {
 	var partition int32 = 2672
 	var replicas int32 = 1
@@ -5932,23 +5397,32 @@ Events:         <none>` + "\n",
 	}
 }
 
-func TestDescribeIPAddress(t *testing.T) {
+func TestDescribeClusterCIDR(t *testing.T) {
 
 	testcases := map[string]struct {
 		input  *fake.Clientset
 		output string
 	}{
-		"IPAddress v1alpha1": {
-			input: fake.NewSimpleClientset(&networkingv1alpha1.IPAddress{
+		"ClusterCIDR v1alpha1": {
+			input: fake.NewSimpleClientset(&networkingv1alpha1.ClusterCIDR{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "foo.123",
 				},
-				Spec: networkingv1alpha1.IPAddressSpec{
-					ParentRef: &networkingv1alpha1.ParentReference{
-						Group:     "mygroup",
-						Resource:  "myresource",
-						Namespace: "mynamespace",
-						Name:      "myname",
+				Spec: networkingv1alpha1.ClusterCIDRSpec{
+					PerNodeHostBits: int32(8),
+					IPv4:            "10.1.0.0/16",
+					IPv6:            "fd00:1:1::/64",
+					NodeSelector: &corev1.NodeSelector{
+						NodeSelectorTerms: []corev1.NodeSelectorTerm{
+							{
+								MatchExpressions: []corev1.NodeSelectorRequirement{
+									{
+										Key:      "foo",
+										Operator: "In",
+										Values:   []string{"bar"}},
+								},
+							},
+						},
 					},
 				},
 			}),
@@ -5956,19 +5430,20 @@ func TestDescribeIPAddress(t *testing.T) {
 			output: `Name:         foo.123
 Labels:       <none>
 Annotations:  <none>
-Parent Reference:
-  Group:      mygroup
-  Resource:   myresource
-  Namespace:  mynamespace
-  Name:       myname
-Events:       <none>` + "\n",
+NodeSelector:
+  NodeSelector Terms:
+    Term 0:       foo in [bar]
+PerNodeHostBits:  8
+IPv4:             10.1.0.0/16
+IPv6:             fd00:1:1::/64
+Events:           <none>` + "\n",
 		},
 	}
 
 	for name, tc := range testcases {
 		t.Run(name, func(t *testing.T) {
 			c := &describeClient{T: t, Namespace: "foo", Interface: tc.input}
-			d := IPAddressDescriber{c}
+			d := ClusterCIDRDescriber{c}
 			out, err := d.Describe("bar", "foo.123", DescriberSettings{ShowEvents: true})
 			if err != nil {
 				t.Errorf("unexpected error: %v", err)
@@ -6086,146 +5561,5 @@ func TestDescribeTerminalEscape(t *testing.T) {
 	}
 	if strings.Contains(out, "\x1b") || !strings.Contains(out, "^[") {
 		t.Errorf("unexpected out: %s", out)
-	}
-}
-
-func TestDescribeSeccompProfile(t *testing.T) {
-	testLocalhostProfiles := []string{"lauseafoodpod", "tikkamasalaconatiner", "dropshotephemeral"}
-
-	testCases := []struct {
-		name   string
-		pod    *corev1.Pod
-		expect []string
-	}{
-		{
-			name: "podLocalhostSeccomp",
-			pod: &corev1.Pod{
-				Spec: corev1.PodSpec{
-					SecurityContext: &corev1.PodSecurityContext{
-						SeccompProfile: &corev1.SeccompProfile{
-							Type:             corev1.SeccompProfileTypeLocalhost,
-							LocalhostProfile: &testLocalhostProfiles[0],
-						},
-					},
-				},
-			},
-			expect: []string{
-				"SeccompProfile", "Localhost",
-				"LocalhostProfile", testLocalhostProfiles[0],
-			},
-		},
-		{
-			name: "podOther",
-			pod: &corev1.Pod{
-				Spec: corev1.PodSpec{
-					SecurityContext: &corev1.PodSecurityContext{
-						SeccompProfile: &corev1.SeccompProfile{
-							Type: corev1.SeccompProfileTypeRuntimeDefault,
-						},
-					},
-				},
-			},
-			expect: []string{
-				"SeccompProfile", "RuntimeDefault",
-			},
-		},
-		{
-			name: "containerLocalhostSeccomp",
-			pod: &corev1.Pod{
-				Spec: corev1.PodSpec{
-					Containers: []corev1.Container{
-						{
-							SecurityContext: &corev1.SecurityContext{
-								SeccompProfile: &corev1.SeccompProfile{
-									Type:             corev1.SeccompProfileTypeLocalhost,
-									LocalhostProfile: &testLocalhostProfiles[1],
-								},
-							},
-						},
-					},
-				},
-			},
-			expect: []string{
-				"SeccompProfile", "Localhost",
-				"LocalhostProfile", testLocalhostProfiles[1],
-			},
-		},
-		{
-			name: "containerOther",
-			pod: &corev1.Pod{
-				Spec: corev1.PodSpec{
-					Containers: []corev1.Container{
-						{
-							SecurityContext: &corev1.SecurityContext{
-								SeccompProfile: &corev1.SeccompProfile{
-									Type: corev1.SeccompProfileTypeUnconfined,
-								},
-							},
-						},
-					},
-				},
-			},
-			expect: []string{
-				"SeccompProfile", "Unconfined",
-			},
-		},
-		{
-			name: "ephemeralLocalhostSeccomp",
-			pod: &corev1.Pod{
-				Spec: corev1.PodSpec{
-					EphemeralContainers: []corev1.EphemeralContainer{
-						{
-							EphemeralContainerCommon: corev1.EphemeralContainerCommon{
-								SecurityContext: &corev1.SecurityContext{
-									SeccompProfile: &corev1.SeccompProfile{
-										Type:             corev1.SeccompProfileTypeLocalhost,
-										LocalhostProfile: &testLocalhostProfiles[2],
-									},
-								},
-							},
-						},
-					},
-				},
-			},
-			expect: []string{
-				"SeccompProfile", "Localhost",
-				"LocalhostProfile", testLocalhostProfiles[2],
-			},
-		},
-		{
-			name: "ephemeralOther",
-			pod: &corev1.Pod{
-				Spec: corev1.PodSpec{
-					Containers: []corev1.Container{
-						{
-							SecurityContext: &corev1.SecurityContext{
-								SeccompProfile: &corev1.SeccompProfile{
-									Type: corev1.SeccompProfileTypeUnconfined,
-								},
-							},
-						},
-					},
-				},
-			},
-			expect: []string{
-				"SeccompProfile", "Unconfined",
-			},
-		},
-	}
-	for _, testCase := range testCases {
-		t.Run(testCase.name, func(t *testing.T) {
-			fake := fake.NewSimpleClientset(testCase.pod)
-			c := &describeClient{T: t, Interface: fake}
-			d := PodDescriber{c}
-			out, err := d.Describe("", "", DescriberSettings{ShowEvents: true})
-			if err != nil {
-				t.Errorf("unexpected error: %v", err)
-			}
-			for _, expected := range testCase.expect {
-				if !strings.Contains(out, expected) {
-					t.Errorf("expected to find %q in output: %q", expected, out)
-				}
-			}
-		})
 	}
 }

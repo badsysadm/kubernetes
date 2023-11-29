@@ -289,22 +289,38 @@ func FetchFromClusterWithLocalOverwrites(clusterCfg *kubeadmapi.ClusterConfigura
 
 // GetVersionStates returns a slice of ComponentConfigVersionState structs
 // describing all supported component config groups that were identified on the cluster
-func GetVersionStates(clusterCfg *kubeadmapi.ClusterConfiguration, client clientset.Interface) ([]outputapiv1alpha2.ComponentConfigVersionState, error) {
+func GetVersionStates(clusterCfg *kubeadmapi.ClusterConfiguration, client clientset.Interface, docmap kubeadmapi.DocumentMap) ([]outputapiv1alpha2.ComponentConfigVersionState, error) {
 	// We don't want to modify clusterCfg so we make a working deep copy of it.
 	// Also, we don't want the defaulted component configs so we get rid of them.
 	scratchClusterCfg := clusterCfg.DeepCopy()
 	scratchClusterCfg.ComponentConfigs = kubeadmapi.ComponentConfigMap{}
 
-	err := FetchFromCluster(scratchClusterCfg, client)
+	// Call FetchFromClusterWithLocalOverwrites. This will populate the configs it can load and will return all
+	// UnsupportedConfigVersionError(s) in a sinle instance of a MultipleUnsupportedConfigVersionsError.
+	var multipleVerErrs UnsupportedConfigVersionsErrorMap
+	err := FetchFromClusterWithLocalOverwrites(scratchClusterCfg, client, docmap)
 	if err != nil {
-		// This seems to be a genuine error so we end here
-		return nil, err
+		if vererrs, ok := err.(UnsupportedConfigVersionsErrorMap); ok {
+			multipleVerErrs = vererrs
+		} else {
+			// This seems to be a genuine error so we end here
+			return nil, err
+		}
 	}
 
 	results := []outputapiv1alpha2.ComponentConfigVersionState{}
 	for _, handler := range known {
 		group := handler.GroupVersion.Group
-		if _, ok := scratchClusterCfg.ComponentConfigs[group]; ok {
+		if vererr, ok := multipleVerErrs[group]; ok {
+			// If there is an UnsupportedConfigVersionError then we are dealing with a case where the config was user
+			// supplied and requires manual upgrade
+			results = append(results, outputapiv1alpha2.ComponentConfigVersionState{
+				Group:                 group,
+				CurrentVersion:        vererr.OldVersion.Version,
+				PreferredVersion:      vererr.CurrentVersion.Version,
+				ManualUpgradeRequired: true,
+			})
+		} else if _, ok := scratchClusterCfg.ComponentConfigs[group]; ok {
 			// Normally loaded component config. No manual upgrade required on behalf of users.
 			results = append(results, outputapiv1alpha2.ComponentConfigVersionState{
 				Group:            group,

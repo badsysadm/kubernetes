@@ -19,6 +19,7 @@ package diff
 import (
 	"bytes"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"path"
 	"path/filepath"
@@ -29,7 +30,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/cli-runtime/pkg/genericiooptions"
+	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"k8s.io/utils/exec"
 )
 
@@ -64,11 +65,14 @@ func (f *FakeObject) Live() runtime.Object {
 func TestDiffProgram(t *testing.T) {
 	externalDiffCommands := [3]string{"diff", "diff -ruN", "diff --report-identical-files"}
 
-	t.Setenv("LANG", "C")
+	if oriLang := os.Getenv("LANG"); oriLang != "C" {
+		os.Setenv("LANG", "C")
+		defer os.Setenv("LANG", oriLang)
+	}
 
 	for i, c := range externalDiffCommands {
-		t.Setenv("KUBECTL_EXTERNAL_DIFF", c)
-		streams, _, stdout, _ := genericiooptions.NewTestIOStreams()
+		os.Setenv("KUBECTL_EXTERNAL_DIFF", c)
+		streams, _, stdout, _ := genericclioptions.NewTestIOStreams()
 		diff := DiffProgram{
 			IOStreams: streams,
 			Exec:      exec.New(),
@@ -130,7 +134,7 @@ func TestDiffVersion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fcontent, err := os.ReadFile(path.Join(diff.Dir.Name, obj.Name()))
+	fcontent, err := ioutil.ReadFile(path.Join(diff.Dir.Name, obj.Name()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -153,7 +157,7 @@ func TestDirectory(t *testing.T) {
 	if !strings.HasPrefix(filepath.Base(dir.Name), "prefix") {
 		t.Fatalf(`Directory doesn't start with "prefix": %q`, dir.Name)
 	}
-	entries, err := os.ReadDir(dir.Name)
+	entries, err := ioutil.ReadDir(dir.Name)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -168,7 +172,7 @@ func TestDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	entries, err = os.ReadDir(dir.Name)
+	entries, err = ioutil.ReadDir(dir.Name)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -201,7 +205,7 @@ func TestDiffer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fcontent, err := os.ReadFile(path.Join(diff.From.Dir.Name, obj.Name()))
+	fcontent, err := ioutil.ReadFile(path.Join(diff.From.Dir.Name, obj.Name()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -210,7 +214,7 @@ func TestDiffer(t *testing.T) {
 		t.Fatalf("File has %q, expected %q", string(fcontent), econtent)
 	}
 
-	fcontent, err = os.ReadFile(path.Join(diff.To.Dir.Name, obj.Name()))
+	fcontent, err = ioutil.ReadFile(path.Join(diff.To.Dir.Name, obj.Name()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -286,12 +290,12 @@ metadata:
 				t.Fatal(err)
 			}
 
-			actualFromContent, _ := os.ReadFile(path.Join(diff.From.Dir.Name, obj.Name()))
+			actualFromContent, _ := ioutil.ReadFile(path.Join(diff.From.Dir.Name, obj.Name()))
 			if string(actualFromContent) != tc.expectedFromContent {
 				t.Fatalf("File has %q, expected %q", string(actualFromContent), tc.expectedFromContent)
 			}
 
-			actualToContent, _ := os.ReadFile(path.Join(diff.To.Dir.Name, obj.Name()))
+			actualToContent, _ := ioutil.ReadFile(path.Join(diff.To.Dir.Name, obj.Name()))
 			if string(actualToContent) != tc.expectedToContent {
 				t.Fatalf("File has %q, expected %q", string(actualToContent), tc.expectedToContent)
 			}

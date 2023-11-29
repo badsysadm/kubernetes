@@ -17,8 +17,6 @@ limitations under the License.
 package network
 
 import (
-	"context"
-
 	"k8s.io/kubernetes/test/e2e/framework"
 	e2eskipper "k8s.io/kubernetes/test/e2e/framework/skipper"
 	"k8s.io/kubernetes/test/e2e/network/common"
@@ -34,7 +32,7 @@ var _ = common.SIGDescribe("Loadbalancing: L7 Scalability", func() {
 		ns string
 	)
 	f := framework.NewDefaultFramework("ingress-scale")
-	f.NamespacePodSecurityLevel = admissionapi.LevelPrivileged
+	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 
 	ginkgo.BeforeEach(func() {
 		ns = f.Namespace.Name
@@ -45,23 +43,23 @@ var _ = common.SIGDescribe("Loadbalancing: L7 Scalability", func() {
 			scaleFramework *scale.IngressScaleFramework
 		)
 
-		ginkgo.BeforeEach(func(ctx context.Context) {
+		ginkgo.BeforeEach(func() {
 			e2eskipper.SkipUnlessProviderIs("gce", "gke")
 
 			scaleFramework = scale.NewIngressScaleFramework(f.ClientSet, ns, framework.TestContext.CloudConfig)
-			if err := scaleFramework.PrepareScaleTest(ctx); err != nil {
+			if err := scaleFramework.PrepareScaleTest(); err != nil {
 				framework.Failf("Unexpected error while preparing ingress scale test: %v", err)
 			}
 		})
 
-		ginkgo.AfterEach(func(ctx context.Context) {
-			if errs := scaleFramework.CleanupScaleTest(ctx); len(errs) != 0 {
+		ginkgo.AfterEach(func() {
+			if errs := scaleFramework.CleanupScaleTest(); len(errs) != 0 {
 				framework.Failf("Unexpected error while cleaning up ingress scale test: %v", errs)
 			}
 		})
 
-		ginkgo.It("Creating and updating ingresses should happen promptly with small/medium/large amount of ingresses", func(ctx context.Context) {
-			if errs := scaleFramework.RunScaleTest(ctx); len(errs) != 0 {
+		ginkgo.It("Creating and updating ingresses should happen promptly with small/medium/large amount of ingresses", func() {
+			if errs := scaleFramework.RunScaleTest(); len(errs) != 0 {
 				framework.Failf("Unexpected error while running ingress scale test: %v", errs)
 			}
 

@@ -69,13 +69,13 @@ const (
 )
 
 // Wait until vsphere volumes are detached from the list of nodes or time out after 5 minutes
-func waitForVSphereDisksToDetach(ctx context.Context, nodeVolumes map[string][]string) error {
+func waitForVSphereDisksToDetach(nodeVolumes map[string][]string) error {
 	var (
 		detachTimeout  = 5 * time.Minute
 		detachPollTime = 10 * time.Second
 	)
-	waitErr := wait.PollWithContext(ctx, detachPollTime, detachTimeout, func(ctx context.Context) (bool, error) {
-		attachedResult, err := disksAreAttached(ctx, nodeVolumes)
+	waitErr := wait.Poll(detachPollTime, detachTimeout, func() (bool, error) {
+		attachedResult, err := disksAreAttached(nodeVolumes)
 		if err != nil {
 			return false, err
 		}
@@ -91,7 +91,7 @@ func waitForVSphereDisksToDetach(ctx context.Context, nodeVolumes map[string][]s
 		return true, nil
 	})
 	if waitErr != nil {
-		if wait.Interrupted(waitErr) {
+		if waitErr == wait.ErrWaitTimeout {
 			return fmt.Errorf("volumes have not detached after %v: %v", detachTimeout, waitErr)
 		}
 		return fmt.Errorf("error waiting for volumes to detach: %v", waitErr)
@@ -100,7 +100,7 @@ func waitForVSphereDisksToDetach(ctx context.Context, nodeVolumes map[string][]s
 }
 
 // Wait until vsphere vmdk moves to expected state on the given node, or time out after 6 minutes
-func waitForVSphereDiskStatus(ctx context.Context, volumePath string, nodeName string, expectedState volumeState) error {
+func waitForVSphereDiskStatus(volumePath string, nodeName string, expectedState volumeState) error {
 	var (
 		currentState volumeState
 		timeout      = 6 * time.Minute
@@ -117,8 +117,8 @@ func waitForVSphereDiskStatus(ctx context.Context, volumePath string, nodeName s
 		volumeStateDetached: "detached from",
 	}
 
-	waitErr := wait.PollWithContext(ctx, pollTime, timeout, func(ctx context.Context) (bool, error) {
-		diskAttached, err := diskIsAttached(ctx, volumePath, nodeName)
+	waitErr := wait.Poll(pollTime, timeout, func() (bool, error) {
+		diskAttached, err := diskIsAttached(volumePath, nodeName)
 		if err != nil {
 			return true, err
 		}
@@ -132,7 +132,7 @@ func waitForVSphereDiskStatus(ctx context.Context, volumePath string, nodeName s
 		return false, nil
 	})
 	if waitErr != nil {
-		if wait.Interrupted(waitErr) {
+		if waitErr == wait.ErrWaitTimeout {
 			return fmt.Errorf("volume %q is not %s %q after %v: %v", volumePath, attachedStateMsg[expectedState], nodeName, timeout, waitErr)
 		}
 		return fmt.Errorf("error waiting for volume %q to be %s %q: %v", volumePath, attachedStateMsg[expectedState], nodeName, waitErr)
@@ -141,13 +141,13 @@ func waitForVSphereDiskStatus(ctx context.Context, volumePath string, nodeName s
 }
 
 // Wait until vsphere vmdk is attached from the given node or time out after 6 minutes
-func waitForVSphereDiskToAttach(ctx context.Context, volumePath string, nodeName string) error {
-	return waitForVSphereDiskStatus(ctx, volumePath, nodeName, volumeStateAttached)
+func waitForVSphereDiskToAttach(volumePath string, nodeName string) error {
+	return waitForVSphereDiskStatus(volumePath, nodeName, volumeStateAttached)
 }
 
 // Wait until vsphere vmdk is detached from the given node or time out after 6 minutes
-func waitForVSphereDiskToDetach(ctx context.Context, volumePath string, nodeName string) error {
-	return waitForVSphereDiskStatus(ctx, volumePath, nodeName, volumeStateDetached)
+func waitForVSphereDiskToDetach(volumePath string, nodeName string) error {
+	return waitForVSphereDiskStatus(volumePath, nodeName, volumeStateDetached)
 }
 
 // function to create vsphere volume spec with given VMDK volume path, Reclaim Policy and labels
@@ -183,7 +183,7 @@ func getVSpherePersistentVolumeClaimSpec(namespace string, labels map[string]str
 			AccessModes: []v1.PersistentVolumeAccessMode{
 				v1.ReadWriteOnce,
 			},
-			Resources: v1.VolumeResourceRequirements{
+			Resources: v1.ResourceRequirements{
 				Requests: v1.ResourceList{
 					v1.ResourceName(v1.ResourceStorage): resource.MustParse("2Gi"),
 				},
@@ -198,14 +198,14 @@ func getVSpherePersistentVolumeClaimSpec(namespace string, labels map[string]str
 }
 
 // function to write content to the volume backed by given PVC
-func writeContentToVSpherePV(ctx context.Context, client clientset.Interface, timeouts *framework.TimeoutContext, pvc *v1.PersistentVolumeClaim, expectedContent string) {
-	utils.RunInPodWithVolume(ctx, client, timeouts, pvc.Namespace, pvc.Name, "echo "+expectedContent+" > /mnt/test/data")
+func writeContentToVSpherePV(client clientset.Interface, timeouts *framework.TimeoutContext, pvc *v1.PersistentVolumeClaim, expectedContent string) {
+	utils.RunInPodWithVolume(client, timeouts, pvc.Namespace, pvc.Name, "echo "+expectedContent+" > /mnt/test/data")
 	framework.Logf("Done with writing content to volume")
 }
 
 // function to verify content is matching on the volume backed for given PVC
-func verifyContentOfVSpherePV(ctx context.Context, client clientset.Interface, timeouts *framework.TimeoutContext, pvc *v1.PersistentVolumeClaim, expectedContent string) {
-	utils.RunInPodWithVolume(ctx, client, timeouts, pvc.Namespace, pvc.Name, "grep '"+expectedContent+"' /mnt/test/data")
+func verifyContentOfVSpherePV(client clientset.Interface, timeouts *framework.TimeoutContext, pvc *v1.PersistentVolumeClaim, expectedContent string) {
+	utils.RunInPodWithVolume(client, timeouts, pvc.Namespace, pvc.Name, "grep '"+expectedContent+"' /mnt/test/data")
 	framework.Logf("Successfully verified content of the volume")
 }
 
@@ -252,7 +252,7 @@ func getVSphereClaimSpecWithStorageClass(ns string, diskSize string, storageclas
 			AccessModes: []v1.PersistentVolumeAccessMode{
 				v1.ReadWriteOnce,
 			},
-			Resources: v1.VolumeResourceRequirements{
+			Resources: v1.ResourceRequirements{
 				Requests: v1.ResourceList{
 					v1.ResourceName(v1.ResourceStorage): resource.MustParse(diskSize),
 				},
@@ -373,12 +373,12 @@ func createEmptyFilesOnVSphereVolume(namespace string, podName string, filePaths
 }
 
 // verify volumes are attached to the node and are accessible in pod
-func verifyVSphereVolumesAccessible(ctx context.Context, c clientset.Interface, pod *v1.Pod, persistentvolumes []*v1.PersistentVolume) {
+func verifyVSphereVolumesAccessible(c clientset.Interface, pod *v1.Pod, persistentvolumes []*v1.PersistentVolume) {
 	nodeName := pod.Spec.NodeName
 	namespace := pod.Namespace
 	for index, pv := range persistentvolumes {
 		// Verify disks are attached to the node
-		isAttached, err := diskIsAttached(ctx, pv.Spec.VsphereVolume.VolumePath, nodeName)
+		isAttached, err := diskIsAttached(pv.Spec.VsphereVolume.VolumePath, nodeName)
 		framework.ExpectNoError(err)
 		if !isAttached {
 			framework.Failf("disk %v is not attached to the node: %v", pv.Spec.VsphereVolume.VolumePath, nodeName)
@@ -391,7 +391,7 @@ func verifyVSphereVolumesAccessible(ctx context.Context, c clientset.Interface, 
 }
 
 // verify volumes are created on one of the specified zones
-func verifyVolumeCreationOnRightZone(ctx context.Context, persistentvolumes []*v1.PersistentVolume, nodeName string, zones []string) {
+func verifyVolumeCreationOnRightZone(persistentvolumes []*v1.PersistentVolume, nodeName string, zones []string) {
 	for _, pv := range persistentvolumes {
 		volumePath := pv.Spec.VsphereVolume.VolumePath
 		// Extract datastoreName from the volume path in the pv spec
@@ -399,7 +399,7 @@ func verifyVolumeCreationOnRightZone(ctx context.Context, persistentvolumes []*v
 		datastorePathObj, _ := getDatastorePathObjFromVMDiskPath(volumePath)
 		datastoreName := datastorePathObj.Datastore
 		nodeInfo := TestContext.NodeMapper.GetNodeInfo(nodeName)
-		ctx, cancel := context.WithCancel(ctx)
+		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		// Get the datastore object reference from the datastore name
 		datastoreRef, err := nodeInfo.VSphere.GetDatastoreRefFromName(ctx, nodeInfo.DataCenterRef, datastoreName)
@@ -424,10 +424,10 @@ func verifyVolumeCreationOnRightZone(ctx context.Context, persistentvolumes []*v
 }
 
 // Get vSphere Volume Path from PVC
-func getvSphereVolumePathFromClaim(ctx context.Context, client clientset.Interface, namespace string, claimName string) string {
-	pvclaim, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, claimName, metav1.GetOptions{})
+func getvSphereVolumePathFromClaim(client clientset.Interface, namespace string, claimName string) string {
+	pvclaim, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(context.TODO(), claimName, metav1.GetOptions{})
 	framework.ExpectNoError(err)
-	pv, err := client.CoreV1().PersistentVolumes().Get(ctx, pvclaim.Spec.VolumeName, metav1.GetOptions{})
+	pv, err := client.CoreV1().PersistentVolumes().Get(context.TODO(), pvclaim.Spec.VolumeName, metav1.GetOptions{})
 	framework.ExpectNoError(err)
 	return pv.Spec.VsphereVolume.VolumePath
 }
@@ -601,8 +601,8 @@ func convertVolPathToDevicePath(ctx context.Context, dc *object.Datacenter, volP
 }
 
 // get .vmx file path for a virtual machine
-func getVMXFilePath(ctx context.Context, vmObject *object.VirtualMachine) (vmxPath string) {
-	ctx, cancel := context.WithCancel(ctx)
+func getVMXFilePath(vmObject *object.VirtualMachine) (vmxPath string) {
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	var nodeVM mo.VirtualMachine
@@ -616,10 +616,10 @@ func getVMXFilePath(ctx context.Context, vmObject *object.VirtualMachine) (vmxPa
 }
 
 // verify ready node count. Try up to 3 minutes. Return true if count is expected count
-func verifyReadyNodeCount(ctx context.Context, client clientset.Interface, expectedNodes int) bool {
+func verifyReadyNodeCount(client clientset.Interface, expectedNodes int) bool {
 	numNodes := 0
 	for i := 0; i < 36; i++ {
-		nodeList, err := e2enode.GetReadySchedulableNodes(ctx, client)
+		nodeList, err := e2enode.GetReadySchedulableNodes(client)
 		framework.ExpectNoError(err)
 
 		numNodes = len(nodeList.Items)
@@ -632,8 +632,8 @@ func verifyReadyNodeCount(ctx context.Context, client clientset.Interface, expec
 }
 
 // poweroff nodeVM and confirm the poweroff state
-func poweroffNodeVM(ctx context.Context, nodeName string, vm *object.VirtualMachine) {
-	ctx, cancel := context.WithCancel(ctx)
+func poweroffNodeVM(nodeName string, vm *object.VirtualMachine) {
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	framework.Logf("Powering off node VM %s", nodeName)
@@ -645,8 +645,8 @@ func poweroffNodeVM(ctx context.Context, nodeName string, vm *object.VirtualMach
 }
 
 // poweron nodeVM and confirm the poweron state
-func poweronNodeVM(ctx context.Context, nodeName string, vm *object.VirtualMachine) {
-	ctx, cancel := context.WithCancel(ctx)
+func poweronNodeVM(nodeName string, vm *object.VirtualMachine) {
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	framework.Logf("Powering on node VM %s", nodeName)
@@ -657,11 +657,11 @@ func poweronNodeVM(ctx context.Context, nodeName string, vm *object.VirtualMachi
 }
 
 // unregister a nodeVM from VC
-func unregisterNodeVM(ctx context.Context, nodeName string, vm *object.VirtualMachine) {
-	ctx, cancel := context.WithCancel(ctx)
+func unregisterNodeVM(nodeName string, vm *object.VirtualMachine) {
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	poweroffNodeVM(ctx, nodeName, vm)
+	poweroffNodeVM(nodeName, vm)
 
 	framework.Logf("Unregistering node VM %s", nodeName)
 	err := vm.Unregister(ctx)
@@ -669,8 +669,8 @@ func unregisterNodeVM(ctx context.Context, nodeName string, vm *object.VirtualMa
 }
 
 // register a nodeVM into a VC
-func registerNodeVM(ctx context.Context, nodeName, workingDir, vmxFilePath string, rpool *object.ResourcePool, host *object.HostSystem) {
-	ctx, cancel := context.WithCancel(ctx)
+func registerNodeVM(nodeName, workingDir, vmxFilePath string, rpool *object.ResourcePool, host *object.HostSystem) {
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	framework.Logf("Registering node VM %s with vmx file path %s", nodeName, vmxFilePath)
@@ -690,12 +690,12 @@ func registerNodeVM(ctx context.Context, nodeName, workingDir, vmxFilePath strin
 	vm, err := finder.VirtualMachine(ctx, vmPath)
 	framework.ExpectNoError(err)
 
-	poweronNodeVM(ctx, nodeName, vm)
+	poweronNodeVM(nodeName, vm)
 }
 
 // disksAreAttached takes map of node and it's volumes and returns map of node, its volumes and attachment state
-func disksAreAttached(ctx context.Context, nodeVolumes map[string][]string) (map[string]map[string]bool, error) {
-	ctx, cancel := context.WithCancel(ctx)
+func disksAreAttached(nodeVolumes map[string][]string) (map[string]map[string]bool, error) {
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	disksAttached := make(map[string]map[string]bool)
@@ -711,7 +711,7 @@ func disksAreAttached(ctx context.Context, nodeVolumes map[string][]string) (map
 	for vm, volumes := range vmVolumes {
 		volumeAttachedMap := make(map[string]bool)
 		for _, volume := range volumes {
-			attached, err := diskIsAttached(ctx, volume, vm)
+			attached, err := diskIsAttached(volume, vm)
 			if err != nil {
 				return nil, err
 			}
@@ -723,9 +723,9 @@ func disksAreAttached(ctx context.Context, nodeVolumes map[string][]string) (map
 }
 
 // diskIsAttached returns if disk is attached to the VM using controllers supported by the plugin.
-func diskIsAttached(ctx context.Context, volPath string, nodeName string) (bool, error) {
+func diskIsAttached(volPath string, nodeName string) (bool, error) {
 	// Create context
-	ctx, cancel := context.WithCancel(ctx)
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	nodeInfo := TestContext.NodeMapper.GetNodeInfo(nodeName)
 	Connect(ctx, nodeInfo.VSphere)
@@ -752,16 +752,14 @@ func getUUIDFromProviderID(providerID string) string {
 }
 
 // GetReadySchedulableNodeInfos returns NodeInfo objects for all nodes with Ready and schedulable state
-func GetReadySchedulableNodeInfos(ctx context.Context, c clientset.Interface) []*NodeInfo {
+func GetReadySchedulableNodeInfos(c clientset.Interface) []*NodeInfo {
+	nodeList, err := e2enode.GetReadySchedulableNodes(c)
+	framework.ExpectNoError(err)
 	var nodesInfo []*NodeInfo
-	if TestContext.NodeMapper != nil {
-		nodeList, err := e2enode.GetReadySchedulableNodes(ctx, c)
-		framework.ExpectNoError(err)
-		for _, node := range nodeList.Items {
-			nodeInfo := TestContext.NodeMapper.GetNodeInfo(node.Name)
-			if nodeInfo != nil {
-				nodesInfo = append(nodesInfo, nodeInfo)
-			}
+	for _, node := range nodeList.Items {
+		nodeInfo := TestContext.NodeMapper.GetNodeInfo(node.Name)
+		if nodeInfo != nil {
+			nodesInfo = append(nodesInfo, nodeInfo)
 		}
 	}
 	return nodesInfo
@@ -770,29 +768,29 @@ func GetReadySchedulableNodeInfos(ctx context.Context, c clientset.Interface) []
 // GetReadySchedulableRandomNodeInfo returns NodeInfo object for one of the Ready and Schedulable Node.
 // if multiple nodes are present with Ready and Schedulable state then one of the Node is selected randomly
 // and it's associated NodeInfo object is returned.
-func GetReadySchedulableRandomNodeInfo(ctx context.Context, c clientset.Interface) *NodeInfo {
-	nodesInfo := GetReadySchedulableNodeInfos(ctx, c)
+func GetReadySchedulableRandomNodeInfo(c clientset.Interface) *NodeInfo {
+	nodesInfo := GetReadySchedulableNodeInfos(c)
 	gomega.Expect(nodesInfo).NotTo(gomega.BeEmpty())
 	return nodesInfo[rand.Int()%len(nodesInfo)]
 }
 
 // invokeVCenterServiceControl invokes the given command for the given service
 // via service-control on the given vCenter host over SSH.
-func invokeVCenterServiceControl(ctx context.Context, command, service, host string) error {
+func invokeVCenterServiceControl(command, service, host string) error {
 	sshCmd := fmt.Sprintf("service-control --%s %s", command, service)
 	framework.Logf("Invoking command %v on vCenter host %v", sshCmd, host)
-	result, err := e2essh.SSH(ctx, sshCmd, host, framework.TestContext.Provider)
+	result, err := e2essh.SSH(sshCmd, host, framework.TestContext.Provider)
 	if err != nil || result.Code != 0 {
 		e2essh.LogResult(result)
-		return fmt.Errorf("couldn't execute command: %s on vCenter host: %w", sshCmd, err)
+		return fmt.Errorf("couldn't execute command: %s on vCenter host: %v", sshCmd, err)
 	}
 	return nil
 }
 
 // expectVolumeToBeAttached checks if the given Volume is attached to the given
 // Node, else fails.
-func expectVolumeToBeAttached(ctx context.Context, nodeName, volumePath string) {
-	isAttached, err := diskIsAttached(ctx, volumePath, nodeName)
+func expectVolumeToBeAttached(nodeName, volumePath string) {
+	isAttached, err := diskIsAttached(volumePath, nodeName)
 	framework.ExpectNoError(err)
 	if !isAttached {
 		framework.Failf("Volume: %s is not attached to the node: %v", volumePath, nodeName)
@@ -801,12 +799,12 @@ func expectVolumeToBeAttached(ctx context.Context, nodeName, volumePath string) 
 
 // expectVolumesToBeAttached checks if the given Volumes are attached to the
 // corresponding set of Nodes, else fails.
-func expectVolumesToBeAttached(ctx context.Context, pods []*v1.Pod, volumePaths []string) {
+func expectVolumesToBeAttached(pods []*v1.Pod, volumePaths []string) {
 	for i, pod := range pods {
 		nodeName := pod.Spec.NodeName
 		volumePath := volumePaths[i]
 		ginkgo.By(fmt.Sprintf("Verifying that volume %v is attached to node %v", volumePath, nodeName))
-		expectVolumeToBeAttached(ctx, nodeName, volumePath)
+		expectVolumeToBeAttached(nodeName, volumePath)
 	}
 }
 

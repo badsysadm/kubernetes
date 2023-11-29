@@ -18,17 +18,15 @@ package rollout
 
 import (
 	"bytes"
-	"io"
+	"io/ioutil"
 	"net/http"
 	"strings"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-
 	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/cli-runtime/pkg/genericiooptions"
+	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"k8s.io/client-go/rest/fake"
 	cmdtesting "k8s.io/kubectl/pkg/cmd/testing"
 	"k8s.io/kubectl/pkg/scheme"
@@ -52,7 +50,7 @@ func TestRolloutRestartOne(t *testing.T) {
 				case p == "/namespaces/test/deployments/nginx-deployment" && (m == "GET" || m == "PATCH"):
 					responseDeployment := &appsv1.Deployment{}
 					responseDeployment.Name = deploymentName
-					body := io.NopCloser(bytes.NewReader([]byte(runtime.EncodeOrDie(encoder, responseDeployment))))
+					body := ioutil.NopCloser(bytes.NewReader([]byte(runtime.EncodeOrDie(encoder, responseDeployment))))
 					return &http.Response{StatusCode: http.StatusOK, Header: cmdtesting.DefaultHeader(), Body: body}, nil
 				default:
 					t.Fatalf("unexpected request: %#v\n%#v", req.URL, req)
@@ -62,63 +60,13 @@ func TestRolloutRestartOne(t *testing.T) {
 		},
 	}
 
-	streams, _, buf, _ := genericiooptions.NewTestIOStreams()
+	streams, _, buf, _ := genericclioptions.NewTestIOStreams()
 	cmd := NewCmdRolloutRestart(tf, streams)
 
 	cmd.Run(cmd, []string{deploymentName})
 	expectedOutput := "deployment.apps/" + deploymentName + " restarted\n"
 	if buf.String() != expectedOutput {
 		t.Errorf("expected output: %s, but got: %s", expectedOutput, buf.String())
-	}
-}
-
-func TestRolloutRestartError(t *testing.T) {
-	deploymentName := "deployment/nginx-deployment"
-	ns := scheme.Codecs.WithoutConversion()
-	tf := cmdtesting.NewTestFactory().WithNamespace("test")
-
-	info, _ := runtime.SerializerInfoForMediaType(ns.SupportedMediaTypes(), runtime.ContentTypeJSON)
-	encoder := ns.EncoderForVersion(info.Serializer, rolloutRestartGroupVersionEncoder)
-	tf.Client = &RolloutRestartRESTClient{
-		RESTClient: &fake.RESTClient{
-			GroupVersion:         rolloutRestartGroupVersionEncoder,
-			NegotiatedSerializer: ns,
-			Client: fake.CreateHTTPClient(func(req *http.Request) (*http.Response, error) {
-				switch p, m := req.URL.Path, req.Method; {
-				case p == "/namespaces/test/deployments/nginx-deployment" && (m == "GET" || m == "PATCH"):
-					responseDeployment := &appsv1.Deployment{}
-					responseDeployment.Name = deploymentName
-					body := io.NopCloser(bytes.NewReader([]byte(runtime.EncodeOrDie(encoder, responseDeployment))))
-					return &http.Response{StatusCode: http.StatusOK, Header: cmdtesting.DefaultHeader(), Body: body}, nil
-				default:
-					t.Fatalf("unexpected request: %#v\n%#v", req.URL, req)
-					return nil, nil
-				}
-			}),
-		},
-	}
-
-	streams, _, bufOut, _ := genericiooptions.NewTestIOStreams()
-	opt := NewRolloutRestartOptions(streams)
-	err := opt.Complete(tf, nil, []string{deploymentName})
-	assert.NoError(t, err)
-	err = opt.Validate()
-	assert.NoError(t, err)
-	opt.Restarter = func(obj runtime.Object) ([]byte, error) {
-		return runtime.Encode(scheme.Codecs.LegacyCodec(appsv1.SchemeGroupVersion), obj)
-	}
-
-	expectedErr := "failed to create patch for nginx-deployment: if restart has already been triggered within the past second, please wait before attempting to trigger another"
-	err = opt.RunRestart()
-	if err == nil {
-		t.Errorf("error expected but not fired")
-	}
-	if err.Error() != expectedErr {
-		t.Errorf("unexpected error fired %v", err)
-	}
-
-	if bufOut.String() != "" {
-		t.Errorf("unexpected message")
 	}
 }
 
@@ -140,7 +88,7 @@ func TestRolloutRestartSelectorNone(t *testing.T) {
 				case p == "/namespaces/test/deployments" && m == "GET" && q.Get("labelSelector") == labelSelector:
 					// Return an empty list
 					responseDeployments := &appsv1.DeploymentList{}
-					body := io.NopCloser(bytes.NewReader([]byte(runtime.EncodeOrDie(encoder, responseDeployments))))
+					body := ioutil.NopCloser(bytes.NewReader([]byte(runtime.EncodeOrDie(encoder, responseDeployments))))
 					return &http.Response{StatusCode: http.StatusOK, Header: cmdtesting.DefaultHeader(), Body: body}, nil
 				default:
 					t.Fatalf("unexpected request: %#v\n%#v", req.URL, req)
@@ -150,7 +98,7 @@ func TestRolloutRestartSelectorNone(t *testing.T) {
 		},
 	}
 
-	streams, _, outBuf, errBuf := genericiooptions.NewTestIOStreams()
+	streams, _, outBuf, errBuf := genericclioptions.NewTestIOStreams()
 	cmd := NewCmdRolloutRestart(tf, streams)
 	cmd.Flags().Set("selector", "app=test")
 
@@ -187,7 +135,7 @@ func TestRolloutRestartSelectorMany(t *testing.T) {
 					// Return the list of 2 deployments
 					responseDeployments := &appsv1.DeploymentList{}
 					responseDeployments.Items = []appsv1.Deployment{firstDeployment, secondDeployment}
-					body := io.NopCloser(bytes.NewReader([]byte(runtime.EncodeOrDie(encoder, responseDeployments))))
+					body := ioutil.NopCloser(bytes.NewReader([]byte(runtime.EncodeOrDie(encoder, responseDeployments))))
 					return &http.Response{StatusCode: http.StatusOK, Header: cmdtesting.DefaultHeader(), Body: body}, nil
 				case (p == "/namespaces/test/deployments/nginx-deployment-1" || p == "/namespaces/test/deployments/nginx-deployment-2") && m == "PATCH":
 					// Pick deployment based on path
@@ -195,7 +143,7 @@ func TestRolloutRestartSelectorMany(t *testing.T) {
 					if strings.HasSuffix(p, "nginx-deployment-2") {
 						responseDeployment = secondDeployment
 					}
-					body := io.NopCloser(bytes.NewReader([]byte(runtime.EncodeOrDie(encoder, &responseDeployment))))
+					body := ioutil.NopCloser(bytes.NewReader([]byte(runtime.EncodeOrDie(encoder, &responseDeployment))))
 					return &http.Response{StatusCode: http.StatusOK, Header: cmdtesting.DefaultHeader(), Body: body}, nil
 				default:
 					t.Fatalf("unexpected request: %#v\n%#v", req.URL, req)
@@ -205,7 +153,7 @@ func TestRolloutRestartSelectorMany(t *testing.T) {
 		},
 	}
 
-	streams, _, buf, _ := genericiooptions.NewTestIOStreams()
+	streams, _, buf, _ := genericclioptions.NewTestIOStreams()
 	cmd := NewCmdRolloutRestart(tf, streams)
 	cmd.Flags().Set("selector", labelSelector)
 

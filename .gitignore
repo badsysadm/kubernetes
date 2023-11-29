@@ -1,7 +1,3 @@
-# gopls gets indigestion without go.work, CI gets indigestion WITH go.work
-/go.work
-/go.work.sum
-
 # OSX leaves these everywhere on SMB shares
 ._*
 
@@ -68,9 +64,6 @@ network_closure.sh
 /third_party/etcd*
 /default.etcd
 
-# Also ignore protoc installed by hack/install-protoc.sh
-/third_party/protoc*
-
 # User cluster configs
 .kubeconfig
 
@@ -91,9 +84,8 @@ network_closure.sh
 /_tmp/
 /doc_tmp/
 
-# Test artifacts produced by Prow/kubetest2 jobs
+# Test artifacts produced by Jenkins jobs
 /_artifacts/
-/_rundir/
 
 # Go dependencies installed on Jenkins
 /_gopath/

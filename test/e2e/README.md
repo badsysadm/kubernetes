@@ -45,10 +45,12 @@ import (
 // test/e2e/lifecycle/framework.go
 package lifecycle
 
-import "k8s.io/kubernetes/test/e2e/framework"
+import "github.com/onsi/ginkgo"
 
 // SIGDescribe annotates the test with the SIG label.
-var SIGDescribe = framework.SIGDescribe("cluster-lifecycle")
+func SIGDescribe(text string, body func()) bool {
+	return ginkgo.Describe("[sig-cluster-lifecycle] "+text, body)
+}
 ```
 ```golang
 // test/e2e/lifecycle/bootstrap/bootstrap_signer.go
@@ -61,7 +63,7 @@ import (
 )
 var _ = lifecycle.SIGDescribe("[Feature:BootstrapTokens]", func() {
   /* ... */
-  ginkgo.It("should sign the new added bootstrap tokens", func(ctx context.Context) {
+  ginkgo.It("should sign the new added bootstrap tokens", func() {
     /* ... */
   })
   /* etc */

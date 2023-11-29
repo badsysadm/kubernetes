@@ -19,6 +19,7 @@ package discovery
 import (
 	"encoding/json"
 	"fmt"
+	"mime"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -26,8 +27,8 @@ import (
 	"time"
 
 	"github.com/gogo/protobuf/proto"
-	openapi_v2 "github.com/google/gnostic-models/openapiv2"
-	openapi_v3 "github.com/google/gnostic-models/openapiv3"
+	openapi_v2 "github.com/google/gnostic/openapiv2"
+	openapi_v3 "github.com/google/gnostic/openapiv3"
 	"github.com/google/go-cmp/cmp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -36,6 +37,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/util/diff"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/version"
 	"k8s.io/client-go/openapi"
@@ -436,7 +438,7 @@ func TestGetServerResourcesForGroupVersion(t *testing.T) {
 		"extensions/v1beta10",
 	}
 	if !reflect.DeepEqual(expectedGroupVersions, serverGroupVersions) {
-		t.Errorf("unexpected group versions: %v", cmp.Diff(expectedGroupVersions, serverGroupVersions))
+		t.Errorf("unexpected group versions: %v", diff.ObjectReflectDiff(expectedGroupVersions, serverGroupVersions))
 	}
 }
 
@@ -492,6 +494,45 @@ func returnedOpenAPI() *openapi_v2.Document {
 	}
 }
 
+func openapiSchemaDeprecatedFakeServer(status int, t *testing.T) (*httptest.Server, error) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if req.URL.Path == "/openapi/v2" {
+			// write the error status for the new endpoint request
+			w.WriteHeader(status)
+			return
+		}
+		if req.URL.Path != "/swagger-2.0.0.pb-v1" {
+			errMsg := fmt.Sprintf("Unexpected url %v", req.URL)
+			w.WriteHeader(http.StatusNotFound)
+			w.Write([]byte(errMsg))
+			t.Errorf("testing should fail as %s", errMsg)
+			return
+		}
+		if req.Method != "GET" {
+			errMsg := fmt.Sprintf("Unexpected method %v", req.Method)
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			w.Write([]byte(errMsg))
+			t.Errorf("testing should fail as %s", errMsg)
+			return
+		}
+
+		mime.AddExtensionType(".pb-v1", "application/com.github.googleapis.gnostic.OpenAPIv2@68f4ded+protobuf")
+
+		output, err := proto.Marshal(returnedOpenAPI())
+		if err != nil {
+			errMsg := fmt.Sprintf("Unexpected marshal error: %v", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(errMsg))
+			t.Errorf("testing should fail as %s", errMsg)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		w.Write(output)
+	}))
+
+	return server, nil
+}
+
 func openapiSchemaFakeServer(t *testing.T) (*httptest.Server, error) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		if req.URL.Path != "/openapi/v2" {
@@ -516,6 +557,8 @@ func openapiSchemaFakeServer(t *testing.T) (*httptest.Server, error) {
 			t.Errorf("testing should fail as %s", errMsg)
 			return
 		}
+
+		mime.AddExtensionType(".pb-v1", "application/com.github.googleapis.gnostic.OpenAPIv2@68f4ded+protobuf")
 
 		output, err := proto.Marshal(returnedOpenAPI())
 		if err != nil {
@@ -633,6 +676,57 @@ func TestGetOpenAPISchemaV3(t *testing.T) {
 			}
 
 		})
+	}
+}
+
+func TestGetOpenAPISchemaForbiddenFallback(t *testing.T) {
+	server, err := openapiSchemaDeprecatedFakeServer(http.StatusForbidden, t)
+	if err != nil {
+		t.Errorf("unexpected error starting fake server: %v", err)
+	}
+	defer server.Close()
+
+	client := NewDiscoveryClientForConfigOrDie(&restclient.Config{Host: server.URL})
+	got, err := client.OpenAPISchema()
+	if err != nil {
+		t.Fatalf("unexpected error getting openapi: %v", err)
+	}
+	if e, a := returnedOpenAPI(), got; !golangproto.Equal(e, a) {
+		t.Errorf("expected %v, got %v", e, a)
+	}
+}
+
+func TestGetOpenAPISchemaNotFoundFallback(t *testing.T) {
+	server, err := openapiSchemaDeprecatedFakeServer(http.StatusNotFound, t)
+	if err != nil {
+		t.Errorf("unexpected error starting fake server: %v", err)
+	}
+	defer server.Close()
+
+	client := NewDiscoveryClientForConfigOrDie(&restclient.Config{Host: server.URL})
+	got, err := client.OpenAPISchema()
+	if err != nil {
+		t.Fatalf("unexpected error getting openapi: %v", err)
+	}
+	if e, a := returnedOpenAPI(), got; !golangproto.Equal(e, a) {
+		t.Errorf("expected %v, got %v", e, a)
+	}
+}
+
+func TestGetOpenAPISchemaNotAcceptableFallback(t *testing.T) {
+	server, err := openapiSchemaDeprecatedFakeServer(http.StatusNotAcceptable, t)
+	if err != nil {
+		t.Errorf("unexpected error starting fake server: %v", err)
+	}
+	defer server.Close()
+
+	client := NewDiscoveryClientForConfigOrDie(&restclient.Config{Host: server.URL})
+	got, err := client.OpenAPISchema()
+	if err != nil {
+		t.Fatalf("unexpected error getting openapi: %v", err)
+	}
+	if e, a := returnedOpenAPI(), got; !golangproto.Equal(e, a) {
+		t.Errorf("expected %v, got %v", e, a)
 	}
 }
 
@@ -2674,76 +2768,54 @@ func TestAggregatedServerPreferredResources(t *testing.T) {
 }
 
 func TestDiscoveryContentTypeVersion(t *testing.T) {
-	v2beta1 := schema.GroupVersionKind{Group: "apidiscovery.k8s.io", Version: "v2beta1", Kind: "APIGroupDiscoveryList"}
 	tests := []struct {
 		contentType string
-		gvk         schema.GroupVersionKind
-		match       bool
-		expectErr   bool
+		isV2Beta1   bool
 	}{
 		{
 			contentType: "application/json; g=apidiscovery.k8s.io;v=v2beta1;as=APIGroupDiscoveryList",
-			gvk:         v2beta1,
-			match:       true,
-			expectErr:   false,
+			isV2Beta1:   true,
 		},
 		{
 			// content-type parameters are not in correct order, but comparison ignores order.
 			contentType: "application/json; v=v2beta1;as=APIGroupDiscoveryList;g=apidiscovery.k8s.io",
-			gvk:         v2beta1,
-			match:       true,
-			expectErr:   false,
+			isV2Beta1:   true,
 		},
 		{
 			// content-type parameters are not in correct order, but comparison ignores order.
 			contentType: "application/json; as=APIGroupDiscoveryList;g=apidiscovery.k8s.io;v=v2beta1",
-			gvk:         v2beta1,
-			match:       true,
-			expectErr:   false,
+			isV2Beta1:   true,
 		},
 		{
 			// Ignores extra parameter "charset=utf-8"
 			contentType: "application/json; g=apidiscovery.k8s.io;v=v2beta1;as=APIGroupDiscoveryList;charset=utf-8",
-			gvk:         v2beta1,
-			match:       true,
-			expectErr:   false,
+			isV2Beta1:   true,
 		},
 		{
 			contentType: "application/json",
-			gvk:         v2beta1,
-			match:       false,
-			expectErr:   false,
+			isV2Beta1:   false,
 		},
 		{
 			contentType: "application/json; charset=UTF-8",
-			gvk:         v2beta1,
-			match:       false,
-			expectErr:   false,
+			isV2Beta1:   false,
 		},
 		{
 			contentType: "text/json",
-			gvk:         v2beta1,
-			match:       false,
-			expectErr:   false,
+			isV2Beta1:   false,
 		},
 		{
 			contentType: "text/html",
-			gvk:         v2beta1,
-			match:       false,
-			expectErr:   false,
+			isV2Beta1:   false,
 		},
 		{
 			contentType: "",
-			gvk:         v2beta1,
-			match:       false,
-			expectErr:   true,
+			isV2Beta1:   false,
 		},
 	}
 
 	for _, test := range tests {
-		match, err := ContentTypeIsGVK(test.contentType, test.gvk)
-		assert.Equal(t, test.expectErr, err != nil)
-		assert.Equal(t, test.match, match)
+		isV2Beta1 := isV2Beta1ContentType(test.contentType)
+		assert.Equal(t, test.isV2Beta1, isV2Beta1)
 	}
 }
 
